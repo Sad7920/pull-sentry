@@ -6,3 +6,5 @@ dist
 *.log
 .DS_Store
 server/generated
+.cache
+chroma_data

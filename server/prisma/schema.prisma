@@ -29,6 +29,7 @@ model ConnectedRepo {
   repoUrl        String
   externalRepoId String
   connectedAt    DateTime     @default(now())
+  indexedAt      DateTime?
 
   @@index([userId])
 }

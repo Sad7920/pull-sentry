@@ -6,6 +6,13 @@ import { useNavigate, useParams } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
   Empty,
   EmptyHeader,
   EmptyTitle,
@@ -130,6 +137,58 @@ function PullRequestsTab({ repoId }) {
   )
 }
 
+function SettingsTab({ repo, onIndexed }) {
+  const { getToken } = useAuth()
+  const [indexing, setIndexing] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function handleIndex() {
+    setIndexing(true)
+    setError(null)
+
+    try {
+      const token = await getToken()
+      const response = await fetch(`/api/repos/${repo.id}/index`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error ?? "Indexing failed")
+      }
+      onIndexed(data)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setIndexing(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Repository index</CardTitle>
+        <CardDescription>
+          Embed source files locally and store vectors in Chroma. Run this once
+          per repo when you are ready.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col items-start gap-3">
+        {repo.indexedAt ? (
+          <p className="text-muted-foreground">
+            Indexed {formatDate(repo.indexedAt)}
+          </p>
+        ) : null}
+        {error ? <p className="text-destructive">{error}</p> : null}
+        <Button disabled={indexing} onClick={handleIndex}>
+          {indexing ? <Spinner data-icon="inline-start" /> : null}
+          {indexing ? "Indexing..." : "Index Repo"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function RepoDetailPage() {
   const { id } = useParams()
   const { getToken } = useAuth()
@@ -225,7 +284,12 @@ export function RepoDetailPage() {
           <RepoEmptyState />
         </TabsContent>
         <TabsContent value="settings">
-          <RepoEmptyState />
+          <SettingsTab
+            repo={repo}
+            onIndexed={(indexed) => {
+              setRepo((current) => ({ ...current, ...indexed }))
+            }}
+          />
         </TabsContent>
       </Tabs>
     </main>

@@ -6,9 +6,10 @@
     "server"
   ],
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
+    "dev": "concurrently -n server,client,chroma -c blue,magenta,green \"npm run dev -w server\" \"npm run dev -w client\" \"npm run chroma\"",
     "dev:client": "npm run dev -w client",
     "dev:server": "npm run dev -w server",
+    "chroma": "chroma run --path ./chroma_data --host localhost --port 8000",
     "build": "npm run build -w client",
     "start": "npm run start -w server"
   },
