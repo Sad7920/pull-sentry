@@ -65,3 +65,29 @@ export async function listConnectedRepos(req, res) {
 
   res.json(connectedRepos)
 }
+
+export async function getConnectedRepo(req, res) {
+  const user = await findCurrentUser(req, res)
+  if (!user) {
+    return
+  }
+
+  const connectedRepo = await prisma.connectedRepo.findFirst({
+    where: {
+      id: req.params.id,
+      userId: user.id,
+    },
+  })
+
+  if (!connectedRepo) {
+    res.status(404).json({ error: "Repo not found" })
+    return
+  }
+
+  res.json({
+    ...connectedRepo,
+    prCount: 0,
+    securityIssueCount: 0,
+    lastReviewedAt: null,
+  })
+}

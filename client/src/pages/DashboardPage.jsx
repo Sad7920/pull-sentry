@@ -159,8 +159,16 @@ export function DashboardPage() {
             {connectedRepos.map((repo) => (
               <Card
                 key={repo.id}
+                role="button"
+                tabIndex={0}
                 className="cursor-pointer"
-                onClick={() => {}}
+                onClick={() => navigate(`/repo/${repo.id}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    navigate(`/repo/${repo.id}`)
+                  }
+                }}
               >
                 <CardHeader>
                   <CardTitle className="truncate">{repo.repoName}</CardTitle>
