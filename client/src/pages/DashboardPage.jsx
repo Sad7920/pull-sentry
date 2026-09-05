@@ -1,6 +1,6 @@
 import { useAuth, useUser } from "@clerk/react"
-import { LogOutIcon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { LogOutIcon, PlusIcon } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
 import { Badge } from "@/components/ui/badge"
@@ -12,17 +12,48 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Spinner } from "@/components/ui/spinner"
+
+function formatConnectedDate(value) {
+  return new Date(value).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
 
 export function DashboardPage() {
   const { getToken, signOut } = useAuth()
   const { user } = useUser()
   const navigate = useNavigate()
-  const [connectedRepoCount, setConnectedRepoCount] = useState(null)
-  const [repos, setRepos] = useState([])
+  const [connectedRepos, setConnectedRepos] = useState([])
+  const [availableRepos, setAvailableRepos] = useState([])
+  const [browsingMore, setBrowsingMore] = useState(false)
+  const [connectingRepoId, setConnectingRepoId] = useState(null)
+  const [hasLoadedConnections, setHasLoadedConnections] = useState(false)
 
   const signedInWithGithub = user.externalAccounts.some(
     (account) => account.provider === "github"
   )
+  const hasConnectedRepos = connectedRepos.length > 0
+  const showBrowseList =
+    signedInWithGithub && (!hasConnectedRepos || browsingMore)
+
+  const authHeaders = useCallback(async () => {
+    const token = await getToken()
+    return {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    }
+  }, [getToken])
+
+  const refreshConnectedRepos = useCallback(async () => {
+    const headers = await authHeaders()
+    const response = await fetch("/api/repos/connected", { headers })
+    const data = await response.json()
+    setConnectedRepos(Array.isArray(data) ? data : [])
+    setHasLoadedConnections(true)
+  }, [authHeaders])
 
   useEffect(() => {
     if (!user) {
@@ -45,34 +76,53 @@ export function DashboardPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(clerkUser),
     })
-      .then((response) => response.json())
-      .then((data) => {
-        setConnectedRepoCount(data.connectedRepoCount ?? 0)
-      })
+      .then(() => refreshConnectedRepos())
       .catch(() => {
-        setConnectedRepoCount(0)
+        setHasLoadedConnections(true)
       })
-  }, [user])
+  }, [refreshConnectedRepos, user])
 
   useEffect(() => {
-    if (!signedInWithGithub || connectedRepoCount !== 0) {
+    if (!showBrowseList) {
       return
     }
 
-    getToken()
-      .then((token) =>
-        fetch("/api/github/repos", {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-      )
+    authHeaders()
+      .then((headers) => fetch("/api/github/repos", { headers }))
       .then((response) => response.json())
       .then((data) => {
-        setRepos(Array.isArray(data) ? data : [])
+        setAvailableRepos(Array.isArray(data) ? data : [])
       })
       .catch(() => {
-        setRepos([])
+        setAvailableRepos([])
       })
-  }, [connectedRepoCount, getToken, signedInWithGithub])
+  }, [authHeaders, showBrowseList])
+
+  async function handleConnect(repo) {
+    setConnectingRepoId(repo.id)
+    try {
+      const headers = await authHeaders()
+      const response = await fetch("/api/repos/connect", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          provider: "github",
+          repoName: repo.full_name,
+          repoUrl: repo.html_url,
+          externalRepoId: String(repo.id),
+        }),
+      })
+
+      if (!response.ok) {
+        return
+      }
+
+      setBrowsingMore(false)
+      await refreshConnectedRepos()
+    } finally {
+      setConnectingRepoId(null)
+    }
+  }
 
   return (
     <main className="flex min-h-svh flex-col items-center gap-8 bg-background p-6">
@@ -92,24 +142,81 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      {signedInWithGithub && connectedRepoCount === 0 ? (
-        <div className="flex w-full max-w-4xl flex-col gap-3">
-          {repos.map((repo) => (
-            <Card key={repo.full_name}>
-              <CardHeader className="flex-row items-center gap-3">
-                <CardTitle className="truncate">{repo.name}</CardTitle>
-                <CardDescription className="min-w-0 flex-1 truncate">
-                  {repo.description}
-                </CardDescription>
-                <Badge variant={repo.private ? "secondary" : "outline"}>
-                  {repo.private ? "Private" : "Public"}
-                </Badge>
-                <Button>Connect</Button>
-              </CardHeader>
-            </Card>
-          ))}
+      {hasLoadedConnections && hasConnectedRepos && !browsingMore ? (
+        <div className="flex w-full max-w-4xl flex-col gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-heading text-base font-medium">
+              Connected repos
+            </h2>
+            {signedInWithGithub ? (
+              <Button variant="outline" onClick={() => setBrowsingMore(true)}>
+                <PlusIcon data-icon="inline-start" />
+                Add repo
+              </Button>
+            ) : null}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {connectedRepos.map((repo) => (
+              <Card
+                key={repo.id}
+                className="cursor-pointer"
+                onClick={() => {}}
+              >
+                <CardHeader>
+                  <CardTitle className="truncate">{repo.repoName}</CardTitle>
+                  <CardDescription>
+                    Connected {formatConnectedDate(repo.connectedAt)}
+                  </CardDescription>
+                  <Badge variant="secondary">{repo.provider}</Badge>
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
         </div>
-      ) : !signedInWithGithub ? (
+      ) : showBrowseList ? (
+        <div className="flex w-full max-w-4xl flex-col gap-3">
+          {hasConnectedRepos ? (
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setBrowsingMore(false)}>
+                Back to connected
+              </Button>
+            </div>
+          ) : null}
+          {availableRepos
+            .filter(
+              (repo) =>
+                !connectedRepos.some(
+                  (connected) => connected.externalRepoId === String(repo.id)
+                )
+            )
+            .map((repo) => {
+            const isConnecting = connectingRepoId === repo.id
+
+            return (
+              <Card key={repo.full_name}>
+                <CardHeader className="flex-row items-center gap-3">
+                  <CardTitle className="truncate">{repo.name}</CardTitle>
+                  <CardDescription className="min-w-0 flex-1 truncate">
+                    {repo.description}
+                  </CardDescription>
+                  <Badge variant={repo.private ? "secondary" : "outline"}>
+                    {repo.private ? "Private" : "Public"}
+                  </Badge>
+                  <Button
+                    disabled={isConnecting}
+                    onClick={() => handleConnect(repo)}
+                  >
+                    {isConnecting ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : null}
+                    {isConnecting ? "Connecting..." : "Connect"}
+                  </Button>
+                </CardHeader>
+              </Card>
+            )
+          })}
+        </div>
+      ) : !signedInWithGithub && hasLoadedConnections && !hasConnectedRepos ? (
         <div className="flex gap-3">
           <Button>Connect GitHub</Button>
           <Button variant="outline">Connect GitLab</Button>

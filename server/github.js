@@ -28,8 +28,10 @@ export async function listGithubRepos(req, res) {
 
   res.json(
     data.map((repo) => ({
+      id: repo.id,
       name: repo.name,
       full_name: repo.full_name,
+      html_url: repo.html_url,
       private: repo.private,
       description: repo.description,
       updated_at: repo.updated_at,

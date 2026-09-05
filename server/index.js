@@ -3,6 +3,7 @@ import { clerkMiddleware } from "@clerk/express"
 import express from "express"
 
 import { listGithubRepos } from "./github.js"
+import { connectRepo, listConnectedRepos } from "./repos.js"
 import { syncUser } from "./users.js"
 
 const port = Number(process.env.PORT) || 3001
@@ -16,6 +17,8 @@ app.get("/health", (_req, res) => {
 
 app.post("/api/users/sync", syncUser)
 app.get("/api/github/repos", clerkMiddleware(), listGithubRepos)
+app.post("/api/repos/connect", clerkMiddleware(), connectRepo)
+app.get("/api/repos/connected", clerkMiddleware(), listConnectedRepos)
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`Server listening on http://localhost:${port}`)
