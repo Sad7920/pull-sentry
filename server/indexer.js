@@ -26,6 +26,52 @@ async function getEmbeddings() {
   })
 }
 
+export async function searchRepoIndex(repoId, query, k = 6) {
+  if (!query?.trim()) {
+    return []
+  }
+
+  const client = chromaClient()
+
+  try {
+    await client.heartbeat()
+  } catch {
+    return []
+  }
+
+  try {
+    const embeddings = await getEmbeddings()
+    const store = new Chroma(embeddings, {
+      index: client,
+      collectionName: collectionNameForRepo(repoId),
+      numDimensions: 384,
+    })
+    const vector = await embeddings.embedQuery(query.slice(0, 4000))
+    const results = await store.similaritySearchVectorWithScore(vector, k)
+    return results.map(([document]) => document)
+  } catch {
+    return []
+  }
+}
+
+function formatRetrievedContext(documents) {
+  if (documents.length === 0) {
+    return "No indexed repository context was available."
+  }
+
+  return documents
+    .map((document) => {
+      const path = document.metadata?.path ?? "unknown"
+      return `File: ${path}\n${document.pageContent}`
+    })
+    .join("\n\n---\n\n")
+}
+
+export async function retrieveRepoContext(repoId, query) {
+  const documents = await searchRepoIndex(repoId, query)
+  return formatRetrievedContext(documents)
+}
+
 export async function indexSourceFiles(repoId, files) {
   const client = chromaClient()
 

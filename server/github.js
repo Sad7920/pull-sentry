@@ -135,6 +135,23 @@ export async function fetchRepoSourceFiles(userId, owner, repo) {
   return files.filter(Boolean)
 }
 
+export async function fetchPullDiff(userId, owner, repo, pullNumber) {
+  const octokit = await getGithubOctokit(userId)
+
+  if (!octokit) {
+    return null
+  }
+
+  const response = await octokit.rest.pulls.get({
+    owner,
+    repo,
+    pull_number: pullNumber,
+    mediaType: { format: "diff" },
+  })
+
+  return typeof response.data === "string" ? response.data : ""
+}
+
 export async function listGithubRepos(req, res) {
   const { isAuthenticated, userId } = getAuth(req)
 
