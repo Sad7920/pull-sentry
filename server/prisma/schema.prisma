@@ -1,0 +1,34 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RepoProvider {
+  github
+  gitlab
+}
+
+model User {
+  id             String          @id @default(cuid())
+  clerkId        String          @unique
+  email          String
+  createdAt      DateTime        @default(now())
+  connectedRepos ConnectedRepo[]
+}
+
+model ConnectedRepo {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       RepoProvider
+  repoName       String
+  repoUrl        String
+  externalRepoId String
+  connectedAt    DateTime     @default(now())
+
+  @@index([userId])
+}

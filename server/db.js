@@ -1,0 +1,18 @@
+import { PrismaPg } from "@prisma/adapter-pg"
+import { PrismaClient } from "./generated/client.ts"
+
+const connectionString = process.env.DATABASE_URL
+
+if (!connectionString) {
+  throw new Error("Missing DATABASE_URL")
+}
+
+const adapter = new PrismaPg({ connectionString })
+
+const globalForPrisma = globalThis
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter })
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma
+}

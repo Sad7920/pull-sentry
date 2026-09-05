@@ -1,11 +1,21 @@
+import "dotenv/config"
+import { clerkMiddleware } from "@clerk/express"
 import express from "express"
+
+import { listGithubRepos } from "./github.js"
+import { syncUser } from "./users.js"
 
 const port = Number(process.env.PORT) || 3001
 const app = express()
 
+app.use(express.json())
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" })
 })
+
+app.post("/api/users/sync", syncUser)
+app.get("/api/github/repos", clerkMiddleware(), listGithubRepos)
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`Server listening on http://localhost:${port}`)
