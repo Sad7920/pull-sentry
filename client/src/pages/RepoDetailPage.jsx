@@ -11,15 +11,122 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-function RepoEmptyState() {
+function RepoEmptyState({ title = "No data yet" }) {
   return (
     <Empty className="border">
       <EmptyHeader>
-        <EmptyTitle>No data yet</EmptyTitle>
+        <EmptyTitle>{title}</EmptyTitle>
       </EmptyHeader>
     </Empty>
+  )
+}
+
+function formatDate(value) {
+  return new Date(value).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
+function prStateVariant(state) {
+  if (state === "open") {
+    return "success"
+  }
+  if (state === "merged") {
+    return "default"
+  }
+  return "secondary"
+}
+
+function PullRequestsTab({ repoId }) {
+  const { getToken } = useAuth()
+  const [pulls, setPulls] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    getToken()
+      .then((token) =>
+        fetch(`/api/repos/${repoId}/prs`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      )
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok) {
+          throw new Error(data.error ?? "Failed to load pull requests")
+        }
+        return data
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setPulls(Array.isArray(data) ? data : [])
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err.message)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [getToken, repoId])
+
+  if (!pulls && !error) {
+    return (
+      <div className="flex justify-center py-10">
+        <Spinner />
+      </div>
+    )
+  }
+
+  if (error) {
+    return <RepoEmptyState title={error} />
+  }
+
+  if (pulls.length === 0) {
+    return <RepoEmptyState title="No pull requests" />
+  }
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Number</TableHead>
+          <TableHead>Title</TableHead>
+          <TableHead>Author</TableHead>
+          <TableHead>State</TableHead>
+          <TableHead>Created</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {pulls.map((pull) => (
+          <TableRow key={pull.number}>
+            <TableCell>#{pull.number}</TableCell>
+            <TableCell className="max-w-xs truncate">{pull.title}</TableCell>
+            <TableCell>{pull.author ?? "—"}</TableCell>
+            <TableCell>
+              <Badge variant={prStateVariant(pull.state)}>{pull.state}</Badge>
+            </TableCell>
+            <TableCell>{formatDate(pull.created_at)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   )
 }
 
@@ -112,7 +219,7 @@ export function RepoDetailPage() {
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="pull-requests">
-          <RepoEmptyState />
+          <PullRequestsTab repoId={id} />
         </TabsContent>
         <TabsContent value="security">
           <RepoEmptyState />
