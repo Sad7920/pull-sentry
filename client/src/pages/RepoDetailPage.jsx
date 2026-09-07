@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/react"
-import { ArrowLeftIcon } from "lucide-react"
+import { AlertCircleIcon, ArrowLeftIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 
@@ -9,6 +9,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -70,7 +71,62 @@ function formatConfidence(confidence) {
   return `${Math.round(confidence * 100)}% confidence`
 }
 
-function ReviewFindings({ findings }) {
+function highestSeverity(findings) {
+  if (findings.some((finding) => finding.severity === "high")) {
+    return "high"
+  }
+  if (findings.some((finding) => finding.severity === "medium")) {
+    return "medium"
+  }
+  return "low"
+}
+
+function sortFindings(findings) {
+  const rank = { high: 0, medium: 1, low: 2 }
+
+  return [...findings].sort((left, right) => {
+    const severityDelta =
+      (rank[left.severity] ?? 1) - (rank[right.severity] ?? 1)
+
+    if (severityDelta !== 0) {
+      return severityDelta
+    }
+
+    return (Date.parse(right.createdAt) || 0) - (Date.parse(left.createdAt) || 0)
+  })
+}
+
+function FindingList({ findings, showPr = false }) {
+  return (
+    <ul className="flex flex-col gap-3">
+      {sortFindings(findings).map((finding, index) => (
+        <li key={`${finding.reviewId}-${finding.file}-${finding.line}-${index}`}>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-start gap-2">
+              <Badge variant={severityVariant(finding.severity)}>
+                {finding.severity}
+              </Badge>
+              <p>{finding.description}</p>
+            </div>
+            <p className="text-muted-foreground">
+              {[
+                showPr && finding.prNumber ? `PR #${finding.prNumber}` : null,
+                finding.file,
+                finding.line ? `line ${finding.line}` : null,
+                formatConfidence(finding.confidence),
+                finding.createdAt ? formatDate(finding.createdAt) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function ReviewFindings({ findings, showPr = false }) {
   const groups = ["high", "medium", "low"]
     .map((severity) => ({
       severity,
@@ -98,25 +154,78 @@ function ReviewFindings({ findings }) {
             </span>
           </AccordionTrigger>
           <AccordionContent>
-            <ul className="flex flex-col gap-3">
-              {group.items.map((finding, index) => (
-                <li key={`${finding.file}-${finding.line}-${index}`}>
-                  <p>{finding.description}</p>
-                  <p className="text-muted-foreground">
-                    {[
-                      finding.file,
-                      finding.line ? `line ${finding.line}` : null,
-                      formatConfidence(finding.confidence),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
-                </li>
-              ))}
-            </ul>
+            <FindingList findings={group.items} showPr={showPr} />
           </AccordionContent>
         </AccordionItem>
       ))}
+    </Accordion>
+  )
+}
+
+function SecurityFindings({ findings }) {
+  const pullRequests = []
+  const groups = new Map()
+
+  for (const finding of findings) {
+    const prNumber = finding.prNumber
+    let group = groups.get(prNumber)
+
+    if (!group) {
+      group = {
+        prNumber,
+        title: finding.prTitle,
+        createdAt: finding.createdAt,
+        findings: [],
+      }
+      groups.set(prNumber, group)
+      pullRequests.push(group)
+    }
+
+    group.findings.push(finding)
+
+    if (finding.prTitle) {
+      group.title = finding.prTitle
+    }
+
+    if (Date.parse(finding.createdAt) > Date.parse(group.createdAt || 0)) {
+      group.createdAt = finding.createdAt
+    }
+  }
+
+  pullRequests.sort(
+    (left, right) =>
+      (Date.parse(right.createdAt) || 0) - (Date.parse(left.createdAt) || 0)
+  )
+
+  return (
+    <Accordion
+      multiple
+      // defaultValue={pullRequests.map((pull) => String(pull.prNumber))}
+    >
+      {pullRequests.map((pull) => {
+        const severity = highestSeverity(pull.findings)
+        const count = pull.findings.length
+
+        return (
+          <AccordionItem key={pull.prNumber} value={String(pull.prNumber)}>
+            <AccordionTrigger className="hover:no-underline">
+              <span className="flex min-w-0 flex-1 items-center gap-2 pr-2">
+                <span className="shrink-0">{`PR #${pull.prNumber}`}</span>
+                <span className="truncate font-medium">
+                  {pull.title ?? "Untitled pull request"}
+                </span>
+                <Badge variant={severityVariant(severity)}>{severity}</Badge>
+                <span className="shrink-0 text-muted-foreground self-end">
+                  {count} {count === 1 ? "finding" : "findings"}
+                </span>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <FindingList findings={pull.findings} />
+            </AccordionContent>
+          </AccordionItem>
+        )
+      })}
     </Accordion>
   )
 }
@@ -131,7 +240,7 @@ function prStateVariant(state) {
   return "secondary"
 }
 
-function PullRequestsTab({ repoId }) {
+function PullRequestsTab({ repoId, onReviewed }) {
   const { getToken } = useAuth()
   const [pulls, setPulls] = useState(null)
   const [error, setError] = useState(null)
@@ -158,6 +267,7 @@ function PullRequestsTab({ repoId }) {
         throw new Error(data.error ?? "Review failed")
       }
       setReviews((current) => ({ ...current, [prNumber]: data }))
+      onReviewed?.()
     } catch (err) {
       setReviewErrors((current) => ({
         ...current,
@@ -259,7 +369,11 @@ function PullRequestsTab({ repoId }) {
                     {isReviewing ? "Reviewing..." : "Review this PR"}
                   </Button>
                   {reviewError ? (
-                    <p className="text-destructive">{reviewError}</p>
+                    <Alert variant="destructive">
+                      <AlertCircleIcon />
+                      <AlertTitle>Review failed</AlertTitle>
+                      <AlertDescription>{reviewError}</AlertDescription>
+                    </Alert>
                   ) : null}
                   {review ? (
                     <ReviewFindings
@@ -276,6 +390,68 @@ function PullRequestsTab({ repoId }) {
       </TableBody>
     </Table>
   )
+}
+
+function SecurityTab({ repoId, refreshKey }) {
+  const { getToken } = useAuth()
+  const [findings, setFindings] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    getToken()
+      .then((token) =>
+        fetch(`/api/repos/${repoId}/reviews`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      )
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok) {
+          throw new Error(data.error ?? "Failed to load security findings")
+        }
+        return data
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setFindings(Array.isArray(data.findings) ? data.findings : [])
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err.message)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [getToken, repoId, refreshKey])
+
+  if (!findings && !error) {
+    return (
+      <div className="flex justify-center py-10">
+        <Spinner />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircleIcon />
+        <AlertTitle>Could not load security findings</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    )
+  }
+
+  if (findings.length === 0) {
+    return <RepoEmptyState title="No review findings yet" />
+  }
+
+  return <SecurityFindings findings={findings} />
 }
 
 function SettingsTab({ repo, onIndexed }) {
@@ -336,6 +512,7 @@ export function RepoDetailPage() {
   const navigate = useNavigate()
   const [repo, setRepo] = useState(null)
   const [error, setError] = useState(null)
+  const [reviewsVersion, setReviewsVersion] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -419,10 +596,13 @@ export function RepoDetailPage() {
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="pull-requests">
-          <PullRequestsTab repoId={id} />
+          <PullRequestsTab
+            repoId={id}
+            onReviewed={() => setReviewsVersion((current) => current + 1)}
+          />
         </TabsContent>
         <TabsContent value="security">
-          <RepoEmptyState />
+          <SecurityTab repoId={id} refreshKey={reviewsVersion} />
         </TabsContent>
         <TabsContent value="settings">
           <SettingsTab
@@ -434,3 +614,4 @@ export function RepoDetailPage() {
     </main>
   )
 }
+

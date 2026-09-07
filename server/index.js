@@ -1,5 +1,6 @@
 import "dotenv/config"
 import { clerkMiddleware } from "@clerk/express"
+import * as Sentry from "@sentry/node"
 import express from "express"
 
 import { listGithubRepos } from "./github.js"
@@ -10,7 +11,7 @@ import {
   listConnectedRepoPulls,
   listConnectedRepos,
 } from "./repos.js"
-import { reviewPullRequest } from "./reviews.js"
+import { listRepoReviews, reviewPullRequest } from "./reviews.js"
 import { syncUser } from "./users.js"
 
 const port = Number(process.env.PORT) || 3001
@@ -27,6 +28,7 @@ app.get("/api/github/repos", clerkMiddleware(), listGithubRepos)
 app.post("/api/repos/connect", clerkMiddleware(), connectRepo)
 app.get("/api/repos/connected", clerkMiddleware(), listConnectedRepos)
 app.get("/api/repos/:id/prs", clerkMiddleware(), listConnectedRepoPulls)
+app.get("/api/repos/:id/reviews", clerkMiddleware(), listRepoReviews)
 app.post("/api/repos/:id/index", clerkMiddleware(), (req, res, next) => {
   req.setTimeout(15 * 60 * 1000)
   res.setTimeout(15 * 60 * 1000)
@@ -38,6 +40,8 @@ app.post("/api/prs/:prNumber/review", clerkMiddleware(), (req, res, next) => {
   res.setTimeout(10 * 60 * 1000)
   Promise.resolve(reviewPullRequest(req, res)).catch(next)
 })
+
+Sentry.setupExpressErrorHandler(app)
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`Server listening on http://localhost:${port}`)

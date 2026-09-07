@@ -1,7 +1,9 @@
 import { getAuth } from "@clerk/express"
 
+import { fetchPullTitles } from "./github.js"
 import { prisma } from "./db.js"
 import { runPrReview } from "./review-graph.js"
+import { captureCaughtError } from "./sentry.js"
 
 function parseOwnerRepo(repoName) {
   const [owner, ...repoParts] = repoName.split("/")
@@ -83,6 +85,11 @@ export async function reviewPullRequest(req, res) {
     })
   } catch (error) {
     console.error(error)
+    captureCaughtError(error, {
+      repoId,
+      prNumber,
+      step: "review",
+    })
 
     if (error.code === "GITHUB_UNAUTHORIZED") {
       res.status(401).json({ error: error.message })
@@ -108,4 +115,73 @@ export async function reviewPullRequest(req, res) {
       error: error.message || "Failed to review pull request",
     })
   }
+}
+
+export async function listRepoReviews(req, res) {
+  const { isAuthenticated, userId } = getAuth(req)
+
+  if (!isAuthenticated) {
+    res.status(401).json({ error: "Unauthorized" })
+    return
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { clerkId: userId },
+  })
+
+  if (!user) {
+    res.status(404).json({ error: "User not synced" })
+    return
+  }
+
+  const connectedRepo = await prisma.connectedRepo.findFirst({
+    where: {
+      id: req.params.id,
+      userId: user.id,
+    },
+  })
+
+  if (!connectedRepo) {
+    res.status(404).json({ error: "Repo not found" })
+    return
+  }
+
+  const reviews = await prisma.review.findMany({
+    where: { connectedRepoId: connectedRepo.id },
+    orderBy: { createdAt: "desc" },
+  })
+
+  const parsed = parseOwnerRepo(connectedRepo.repoName)
+  let titles = {}
+
+  if (parsed && connectedRepo.provider === "github") {
+    try {
+      titles = await fetchPullTitles(
+        user.clerkId,
+        parsed.owner,
+        parsed.repo,
+        reviews.map((review) => review.prNumber),
+        { repoId: connectedRepo.id }
+      )
+    } catch (error) {
+      captureCaughtError(error, {
+        repoId: connectedRepo.id,
+        step: "github.fetchPullTitles",
+      })
+    }
+  }
+
+  const findings = reviews.flatMap((review) => {
+    const items = Array.isArray(review.findings) ? review.findings : []
+
+    return items.map((finding) => ({
+      ...finding,
+      reviewId: review.id,
+      prNumber: review.prNumber,
+      prTitle: titles[review.prNumber] ?? null,
+      createdAt: review.createdAt,
+    }))
+  })
+
+  res.json({ findings })
 }

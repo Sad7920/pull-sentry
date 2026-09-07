@@ -1,9 +1,11 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai"
 import { ChatGroq } from "@langchain/groq"
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
+import * as Sentry from "@sentry/node"
 
 import { fetchPullDiff } from "./github.js"
 import { retrieveRepoContext } from "./indexer.js"
+import { captureCaughtError } from "./sentry.js"
 
 const maxDiffChars = 40_000
 const severityRank = { high: 0, medium: 1, low: 2 }
@@ -101,7 +103,8 @@ function parseJsonArray(text) {
   try {
     const parsed = JSON.parse(unfenced.slice(start, end + 1))
     return Array.isArray(parsed) ? parsed : []
-  } catch {
+  } catch (error) {
+    captureCaughtError(error, { step: "llm.parseJson" })
     return []
   }
 }
@@ -161,12 +164,44 @@ async function askForFindings(prompt) {
   }
 }
 
+function withReviewStep(step, node) {
+  return async (state) => {
+    Sentry.setTags({
+      repoId: String(state.repoId ?? ""),
+      prNumber: String(state.prNumber ?? ""),
+      step,
+    })
+
+    try {
+      return await Sentry.startSpan(
+        {
+          name: `review.${step}`,
+          op: "function",
+          attributes: {
+            "repo.id": String(state.repoId ?? ""),
+            "pr.number": Number(state.prNumber) || 0,
+          },
+        },
+        () => node(state)
+      )
+    } catch (error) {
+      captureCaughtError(error, {
+        repoId: state.repoId,
+        prNumber: state.prNumber,
+        step,
+      })
+      throw error
+    }
+  }
+}
+
 async function fetchDiffNode(state) {
   const diff = await fetchPullDiff(
     state.clerkUserId,
     state.owner,
     state.repo,
-    state.prNumber
+    state.prNumber,
+    { repoId: state.repoId, prNumber: state.prNumber }
   )
 
   if (diff == null) {
@@ -285,11 +320,11 @@ ${state.diff}`
 }
 
 const reviewGraph = new StateGraph(ReviewState)
-  .addNode("fetchDiff", fetchDiffNode)
-  .addNode("security", securityNode)
-  .addNode("style", styleNode)
-  .addNode("synthesize", synthesizeNode)
-  .addNode("sanityCheck", sanityCheckNode)
+  .addNode("fetchDiff", withReviewStep("fetchDiff", fetchDiffNode))
+  .addNode("security", withReviewStep("security", securityNode))
+  .addNode("style", withReviewStep("style", styleNode))
+  .addNode("synthesize", withReviewStep("synthesize", synthesizeNode))
+  .addNode("sanityCheck", withReviewStep("sanityCheck", sanityCheckNode))
   .addEdge(START, "fetchDiff")
   .addEdge("fetchDiff", "security")
   .addEdge("security", "style")
@@ -305,13 +340,31 @@ export async function runPrReview({
   repo,
   prNumber,
 }) {
-  const result = await reviewGraph.invoke({
-    clerkUserId,
-    repoId,
-    owner,
-    repo,
-    prNumber,
-  })
+  return Sentry.startSpan(
+    {
+      name: "pr.review",
+      op: "function",
+      attributes: {
+        "repo.id": String(repoId),
+        "pr.number": prNumber,
+      },
+    },
+    async () => {
+      Sentry.setTags({
+        repoId: String(repoId),
+        prNumber: String(prNumber),
+        step: "review",
+      })
 
-  return result.findings ?? []
+      const result = await reviewGraph.invoke({
+        clerkUserId,
+        repoId,
+        owner,
+        repo,
+        prNumber,
+      })
+
+      return result.findings ?? []
+    }
+  )
 }

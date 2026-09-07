@@ -3,6 +3,7 @@ import { getAuth } from "@clerk/express"
 import { fetchRepoPulls, fetchRepoSourceFiles } from "./github.js"
 import { indexSourceFiles } from "./indexer.js"
 import { prisma } from "./db.js"
+import { captureCaughtError } from "./sentry.js"
 
 const providers = new Set(["github", "gitlab"])
 
@@ -86,11 +87,21 @@ export async function getConnectedRepo(req, res) {
     return
   }
 
+  const reviews = await prisma.review.findMany({
+    where: { connectedRepoId: connectedRepo.id },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true, findings: true },
+  })
+  const securityIssueCount = reviews.reduce((count, review) => {
+    const items = Array.isArray(review.findings) ? review.findings : []
+    return count + items.filter((item) => item.severity === "high").length
+  }, 0)
+
   res.json({
     ...connectedRepo,
     prCount: 0,
-    securityIssueCount: 0,
-    lastReviewedAt: null,
+    securityIssueCount,
+    lastReviewedAt: reviews[0]?.createdAt ?? null,
   })
 }
 
@@ -126,7 +137,9 @@ export async function listConnectedRepoPulls(req, res) {
   }
 
   try {
-    const pulls = await fetchRepoPulls(user.clerkId, owner, repo)
+    const pulls = await fetchRepoPulls(user.clerkId, owner, repo, {
+      repoId: connectedRepo.id,
+    })
 
     if (!pulls) {
       res.status(401).json({ error: "GitHub OAuth access token not found" })
@@ -134,7 +147,11 @@ export async function listConnectedRepoPulls(req, res) {
     }
 
     res.json(pulls)
-  } catch {
+  } catch (error) {
+    captureCaughtError(error, {
+      repoId: connectedRepo.id,
+      step: "github.listPulls",
+    })
     res.status(502).json({ error: "Failed to load pull requests from GitHub" })
   }
 }
@@ -178,7 +195,8 @@ export async function indexConnectedRepo(req, res) {
     const files = await fetchRepoSourceFiles(
       user.clerkId,
       parsed.owner,
-      parsed.repo
+      parsed.repo,
+      { repoId: connectedRepo.id }
     )
 
     if (!files) {
@@ -201,6 +219,11 @@ export async function indexConnectedRepo(req, res) {
       chunkCount,
     })
   } catch (error) {
+    captureCaughtError(error, {
+      repoId: connectedRepo.id,
+      step: "github.indexRepo",
+    })
+
     if (error.code === "CHROMA_UNAVAILABLE") {
       res.status(503).json({ error: error.message })
       return

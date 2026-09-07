@@ -1,6 +1,8 @@
 import { clerkClient, getAuth } from "@clerk/express"
 import { Octokit } from "octokit"
 
+import { captureCaughtError } from "./sentry.js"
+
 const skipDirPattern =
   /(^|\/)(node_modules|\.git|dist|build|coverage|\.next|out|vendor|__pycache__|\.venv|venv)(\/|$)/
 const skipLockPattern =
@@ -62,42 +64,79 @@ function mapPull(pull) {
   }
 }
 
-export async function fetchRepoPulls(userId, owner, repo) {
+export async function fetchRepoPulls(userId, owner, repo, context = {}) {
   const octokit = await getGithubOctokit(userId)
 
   if (!octokit) {
     return null
   }
 
-  const [open, closed] = await Promise.all([
-    octokit.rest.pulls.list({
-      owner,
-      repo,
-      state: "open",
-      sort: "updated",
-      direction: "desc",
-      per_page: 30,
-    }),
-    octokit.rest.pulls.list({
-      owner,
-      repo,
-      state: "closed",
-      sort: "updated",
-      direction: "desc",
-      per_page: 20,
-    }),
-  ])
+  try {
+    const [open, closed] = await Promise.all([
+      octokit.rest.pulls.list({
+        owner,
+        repo,
+        state: "open",
+        sort: "updated",
+        direction: "desc",
+        per_page: 30,
+      }),
+      octokit.rest.pulls.list({
+        owner,
+        repo,
+        state: "closed",
+        sort: "updated",
+        direction: "desc",
+        per_page: 20,
+      }),
+    ])
 
-  return [...open.data, ...closed.data].map(mapPull)
+    return [...open.data, ...closed.data].map(mapPull)
+  } catch (error) {
+    captureCaughtError(error, { ...context, step: "github.fetchRepoPulls" })
+    throw error
+  }
 }
 
-export async function fetchRepoSourceFiles(userId, owner, repo) {
+export async function fetchPullTitles(userId, owner, repo, prNumbers, context = {}) {
+  const octokit = await getGithubOctokit(userId)
+
+  if (!octokit) {
+    return {}
+  }
+
+  const uniqueNumbers = [...new Set(prNumbers.filter((number) => Number.isFinite(number)))]
+  const titles = {}
+
+  await mapLimit(uniqueNumbers, fetchConcurrency, async (number) => {
+    try {
+      const { data } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: number,
+      })
+      titles[number] = data.title ?? null
+    } catch (error) {
+      captureCaughtError(error, {
+        ...context,
+        prNumber: number,
+        step: "github.fetchPullTitles",
+      })
+      titles[number] = null
+    }
+  })
+
+  return titles
+}
+
+export async function fetchRepoSourceFiles(userId, owner, repo, context = {}) {
   const octokit = await getGithubOctokit(userId)
 
   if (!octokit) {
     return null
   }
 
+  try {
   const { data: repository } = await octokit.rest.repos.get({ owner, repo })
   const { data: tree } = await octokit.rest.git.getTree({
     owner,
@@ -133,9 +172,13 @@ export async function fetchRepoSourceFiles(userId, owner, repo) {
   })
 
   return files.filter(Boolean)
+  } catch (error) {
+    captureCaughtError(error, { ...context, step: "github.fetchRepoSourceFiles" })
+    throw error
+  }
 }
 
-export async function fetchPullDiff(userId, owner, repo, pullNumber) {
+export async function fetchPullDiff(userId, owner, repo, pullNumber, context = {}) {
   const octokit = await getGithubOctokit(userId)
 
   if (!octokit) {
@@ -152,6 +195,12 @@ export async function fetchPullDiff(userId, owner, repo, pullNumber) {
 
     return typeof response.data === "string" ? response.data : ""
   } catch (error) {
+    captureCaughtError(error, {
+      ...context,
+      prNumber: pullNumber,
+      step: "github.fetchPullDiff",
+    })
+
     if (error.status === 404) {
       const notFound = new Error("Pull request not found on GitHub")
       notFound.code = "GITHUB_PR_NOT_FOUND"
@@ -176,20 +225,26 @@ export async function listGithubRepos(req, res) {
     res.status(401).json({ error: "GitHub OAuth access token not found" })
     return
   }
-  const { data } = await octokit.rest.repos.listForAuthenticatedUser({
-    per_page: 100,
-    sort: "updated",
-  })
 
-  res.json(
-    data.map((repo) => ({
-      id: repo.id,
-      name: repo.name,
-      full_name: repo.full_name,
-      html_url: repo.html_url,
-      private: repo.private,
-      description: repo.description,
-      updated_at: repo.updated_at,
-    }))
-  )
+  try {
+    const { data } = await octokit.rest.repos.listForAuthenticatedUser({
+      per_page: 100,
+      sort: "updated",
+    })
+
+    res.json(
+      data.map((repo) => ({
+        id: repo.id,
+        name: repo.name,
+        full_name: repo.full_name,
+        html_url: repo.html_url,
+        private: repo.private,
+        description: repo.description,
+        updated_at: repo.updated_at,
+      }))
+    )
+  } catch (error) {
+    captureCaughtError(error, { step: "github.listRepos" })
+    res.status(502).json({ error: "Failed to load GitHub repositories" })
+  }
 }
