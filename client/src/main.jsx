@@ -19,7 +19,15 @@ createRoot(document.getElementById("root")).render(
     <ClerkProvider
       publishableKey={PUBLISHABLE_KEY}
       ui={ui}
-      appearance={{ theme: shadcn }}
+      appearance={{
+        theme: shadcn,
+        options: {
+          // Dashboard Legal URLs are for the hosted Account Portal; the
+          // embedded SignIn card only shows Help/Privacy/Terms from here.
+          termsPageUrl: "/terms-of-service",
+          privacyPageUrl: "/privacy-policy",
+        },
+      }}
       signInUrl="/login"
       signUpUrl="/login"
       afterSignOutUrl="/login"

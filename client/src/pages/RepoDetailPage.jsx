@@ -114,7 +114,7 @@ function FindingList({ findings, showPr = false }) {
               </Badge>
               <p>{finding.description}</p>
             </div>
-            <p className="text-muted-foreground">
+            <p className="wrap-break-word text-muted-foreground">
               {[
                 showPr && finding.prNumber ? `PR #${finding.prNumber}` : null,
                 finding.file,
@@ -215,13 +215,13 @@ function SecurityFindings({ findings }) {
         return (
           <AccordionItem key={pull.prNumber} value={String(pull.prNumber)}>
             <AccordionTrigger className="hover:no-underline">
-              <span className="flex min-w-0 flex-1 items-center gap-2 pr-2">
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 pr-2">
                 <span className="shrink-0">{`PR #${pull.prNumber}`}</span>
-                <span className="truncate font-medium">
+                <span className="min-w-0 flex-1 basis-32 truncate font-medium">
                   {pull.title ?? "Untitled pull request"}
                 </span>
                 <Badge variant={severityVariant(severity)}>{severity}</Badge>
-                <span className="shrink-0 text-muted-foreground self-end">
+                <span className="shrink-0 self-end text-muted-foreground">
                   {count} {count === 1 ? "finding" : "findings"}
                 </span>
               </span>
@@ -244,6 +244,62 @@ function prStateVariant(state) {
     return "default"
   }
   return "secondary"
+}
+
+function PullRequestReviewButton({
+  isReviewing,
+  reviewingNumber,
+  onReview,
+  className,
+}) {
+  return (
+    <Button
+      size="sm"
+      className={className}
+      disabled={reviewingNumber !== null}
+      onClick={(event) => {
+        event.stopPropagation()
+        onReview()
+      }}
+    >
+      {isReviewing ? <Spinner data-icon="inline-start" /> : null}
+      {isReviewing ? "Reviewing..." : "Review"}
+    </Button>
+  )
+}
+
+function PullRequestReviewBlock({
+  isReviewing,
+  reviewingNumber,
+  review,
+  reviewError,
+  onReview,
+  showButton = true,
+}) {
+  return (
+    <div className="flex w-full min-w-0 flex-col items-start gap-3 lg:min-w-56">
+      {showButton ? (
+        <PullRequestReviewButton
+          isReviewing={isReviewing}
+          reviewingNumber={reviewingNumber}
+          onReview={onReview}
+        />
+      ) : null}
+      {isReviewing && !review ? <ReviewFindingsSkeleton /> : null}
+      {reviewError ? (
+        <Alert variant="destructive">
+          <AlertCircleIcon />
+          <AlertTitle>Review failed</AlertTitle>
+          <AlertDescription>{reviewError}</AlertDescription>
+        </Alert>
+      ) : null}
+      {review ? (
+        <ReviewFindings
+          findings={Array.isArray(review.findings) ? review.findings : []}
+        />
+      ) : null}
+    </div>
+  )
 }
 
 function PullRequestsTab({ repoId, onReviewed }) {
@@ -329,69 +385,100 @@ function PullRequestsTab({ repoId, onReviewed }) {
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Number</TableHead>
-          <TableHead>Title</TableHead>
-          <TableHead>Author</TableHead>
-          <TableHead>State</TableHead>
-          <TableHead>Created</TableHead>
-          <TableHead className="w-0" />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
+    <>
+      <div className="flex flex-col gap-3 lg:hidden">
         {pulls.map((pull) => {
           const isReviewing = reviewingNumber === pull.number
           const review = reviews[pull.number]
           const reviewError = reviewErrors[pull.number]
 
           return (
-            <TableRow key={pull.number}>
-              <TableCell>#{pull.number}</TableCell>
-              <TableCell className="max-w-xs truncate">{pull.title}</TableCell>
-              <TableCell>{pull.author ?? "—"}</TableCell>
-              <TableCell>
-                <Badge variant={prStateVariant(pull.state)}>
-                  {pull.state}
-                </Badge>
-              </TableCell>
-              <TableCell>{formatDate(pull.created_at)}</TableCell>
-              <TableCell>
-                <div className="flex min-w-56 flex-col items-start gap-3">
-                  <Button
-                    size="sm"
-                    disabled={reviewingNumber !== null}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleReview(pull.number)
-                    }}
-                  >
-                    {isReviewing ? <Spinner data-icon="inline-start" /> : null}
-                    {isReviewing ? "Reviewing..." : "Review this PR"}
-                  </Button>
-                  {isReviewing && !review ? <ReviewFindingsSkeleton /> : null}
-                  {reviewError ? (
-                    <Alert variant="destructive">
-                      <AlertCircleIcon />
-                      <AlertTitle>Review failed</AlertTitle>
-                      <AlertDescription>{reviewError}</AlertDescription>
-                    </Alert>
-                  ) : null}
-                  {review ? (
-                    <ReviewFindings
-                      findings={
-                        Array.isArray(review.findings) ? review.findings : []
-                      }
-                    />
-                  ) : null}
+            <Card key={pull.number}>
+              <CardContent className="flex flex-col gap-3">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <CardTitle className="min-w-0 truncate text-sm">
+                      <span className="text-muted-foreground">
+                        #{pull.number}
+                      </span>{" "}
+                      <span>{pull.title}</span>
+                    </CardTitle>
+                    <Badge
+                      className="shrink-0"
+                      variant={prStateVariant(pull.state)}
+                    >
+                      {pull.state}
+                    </Badge>
+                  </div>
+                  <PullRequestReviewButton
+                    className="row-span-2 self-center"
+                    isReviewing={isReviewing}
+                    reviewingNumber={reviewingNumber}
+                    onReview={() => handleReview(pull.number)}
+                  />
+                  <CardDescription>
+                    {pull.author ?? "—"} · {formatDate(pull.created_at)}
+                  </CardDescription>
                 </div>
-              </TableCell>
-            </TableRow>
+                <PullRequestReviewBlock
+                  showButton={false}
+                  isReviewing={isReviewing}
+                  reviewingNumber={reviewingNumber}
+                  review={review}
+                  reviewError={reviewError}
+                  onReview={() => handleReview(pull.number)}
+                />
+              </CardContent>
+            </Card>
           )
         })}
-      </TableBody>
-    </Table>
+      </div>
+
+      <div className="hidden lg:block">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Number</TableHead>
+              <TableHead>Title</TableHead>
+              <TableHead>Author</TableHead>
+              <TableHead>State</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead className="w-0" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pulls.map((pull) => {
+              const isReviewing = reviewingNumber === pull.number
+              const review = reviews[pull.number]
+              const reviewError = reviewErrors[pull.number]
+
+              return (
+                <TableRow key={pull.number}>
+                  <TableCell>#{pull.number}</TableCell>
+                  <TableCell className="max-w-xs truncate">{pull.title}</TableCell>
+                  <TableCell>{pull.author ?? "—"}</TableCell>
+                  <TableCell>
+                    <Badge variant={prStateVariant(pull.state)}>
+                      {pull.state}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{formatDate(pull.created_at)}</TableCell>
+                  <TableCell>
+                    <PullRequestReviewBlock
+                      isReviewing={isReviewing}
+                      reviewingNumber={reviewingNumber}
+                      review={review}
+                      reviewError={reviewError}
+                      onReview={() => handleReview(pull.number)}
+                    />
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   )
 }
 
@@ -566,7 +653,7 @@ export function RepoDetailPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-6 bg-background p-6">
+    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-6 bg-background p-4 md:p-6">
       <div className="flex flex-col gap-4">
         <Button
           variant="outline"
@@ -576,21 +663,27 @@ export function RepoDetailPage() {
           <ArrowLeftIcon data-icon="inline-start" />
           Back
         </Button>
-        <div className="flex items-center gap-3">
-          <h1 className="font-heading truncate text-xl font-medium">
+        <div className="flex min-w-0 items-center gap-3">
+          <h1 className="font-heading min-w-0 truncate text-lg font-medium md:text-xl">
             {repo.repoName}
           </h1>
           <Badge variant="secondary">{repo.provider}</Badge>
         </div>
       </div>
 
-      <Tabs defaultValue="pull-requests">
-        <TabsList>
-          <TabsTrigger value="pull-requests">Pull Requests</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
+      <Tabs defaultValue="pull-requests" className="min-w-0">
+        <TabsList className="h-8 w-full max-w-full justify-start overflow-x-auto md:w-fit">
+          <TabsTrigger className="flex-none" value="pull-requests">
+            Pull Requests
+          </TabsTrigger>
+          <TabsTrigger className="flex-none" value="security">
+            Security
+          </TabsTrigger>
+          <TabsTrigger className="flex-none" value="settings">
+            Settings
+          </TabsTrigger>
         </TabsList>
-        <TabsContent value="pull-requests">
+        <TabsContent className="min-w-0" value="pull-requests">
           <PullRequestsTab
             repoId={id}
             onReviewed={() => setReviewsVersion((current) => current + 1)}

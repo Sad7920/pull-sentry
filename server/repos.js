@@ -15,16 +15,24 @@ async function findCurrentUser(req, res) {
     return null
   }
 
-  const user = await prisma.user.findUnique({
-    where: { clerkId: userId },
-  })
+  try {
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+    })
 
-  if (!user) {
-    res.status(404).json({ error: "User not synced" })
+    if (!user) {
+      res.status(404).json({ error: "User not synced" })
+      return null
+    }
+
+    return user
+  } catch (error) {
+    captureCaughtError(error, { step: "repos.findCurrentUser" })
+    res.status(503).json({
+      error: "Database unavailable. Try again in a moment.",
+    })
     return null
   }
-
-  return user
 }
 
 export async function connectRepo(req, res) {

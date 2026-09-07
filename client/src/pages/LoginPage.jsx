@@ -11,6 +11,11 @@ const clerkAppearance = {
     socialButtonsVariant: "blockButton",
     socialButtonsPlacement: "top",
     logoImageUrl: "/logo.svg",
+    termsPageUrl: "/terms-of-service",
+    privacyPageUrl: "/privacy-policy",
+  },
+  elements: {
+    rootBox: "w-full max-w-full",
   },
 }
 
@@ -98,7 +103,7 @@ export function LoginPage() {
   return (
     <main className="grid min-h-svh md:grid-cols-2">
       <BrandPanel />
-      <section className="flex items-center justify-center bg-background px-6 py-10 lg:px-12">
+      <section className="flex min-w-0 items-center justify-center overflow-x-hidden bg-background px-4 py-10 sm:px-6 lg:px-12">
         {!isLoaded ? (
           <SignInSkeleton />
         ) : (

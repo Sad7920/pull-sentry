@@ -1,5 +1,6 @@
 import {
   Card,
+  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
@@ -30,7 +31,7 @@ export function ConnectedReposSkeleton() {
         <Skeleton className="h-5 w-36" />
         <Skeleton className="h-8 w-24" />
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {Array.from({ length: 4 }, (_, index) => (
           <Card key={index}>
             <CardHeader>
@@ -59,12 +60,16 @@ export function AvailableReposSkeleton() {
       <ScreenReaderStatus label="Loading repositories to connect" />
       {Array.from({ length: 5 }, (_, index) => (
         <Card key={index}>
-          <CardHeader className="flex-row items-center gap-3">
-            <Skeleton className="h-5 w-32 shrink-0" />
-            <Skeleton className="h-4 min-w-0 flex-1" />
-            <Skeleton className="h-5 w-16 shrink-0" />
-            <Skeleton className="h-8 w-20 shrink-0" />
-          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="h-5 w-16 shrink-0" />
+              </div>
+              <Skeleton className="h-4 w-full" />
+            </div>
+            <Skeleton className="h-8 w-20 shrink-0 self-end sm:self-center" />
+          </CardContent>
         </Card>
       ))}
     </div>
@@ -75,42 +80,58 @@ export function PullRequestsTableSkeleton() {
   return (
     <div aria-busy="true" aria-live="polite">
       <ScreenReaderStatus label="Loading pull requests" />
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Number</TableHead>
-            <TableHead>Title</TableHead>
-            <TableHead>Author</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead className="w-0" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {Array.from({ length: 5 }, (_, index) => (
-            <TableRow key={index}>
-              <TableCell>
-                <Skeleton className="h-4 w-10" />
-              </TableCell>
-              <TableCell>
-                <Skeleton className="h-4 w-48" />
-              </TableCell>
-              <TableCell>
-                <Skeleton className="h-4 w-24" />
-              </TableCell>
-              <TableCell>
-                <Skeleton className="h-5 w-14" />
-              </TableCell>
-              <TableCell>
-                <Skeleton className="h-4 w-20" />
-              </TableCell>
-              <TableCell>
-                <Skeleton className="h-7 w-28" />
-              </TableCell>
+      <div className="flex flex-col gap-3 lg:hidden">
+        {Array.from({ length: 4 }, (_, index) => (
+          <Card key={index}>
+            <CardContent className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-5 w-3/4" />
+                <Skeleton className="h-5 w-14 shrink-0" />
+              </div>
+              <Skeleton className="row-span-2 h-7 w-16 shrink-0 self-center" />
+              <Skeleton className="h-4 w-1/2" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <div className="hidden lg:block">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Number</TableHead>
+              <TableHead>Title</TableHead>
+              <TableHead>Author</TableHead>
+              <TableHead>State</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead className="w-0" />
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 5 }, (_, index) => (
+              <TableRow key={index}>
+                <TableCell>
+                  <Skeleton className="h-4 w-10" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-4 w-48" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-4 w-24" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-5 w-14" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-4 w-20" />
+                </TableCell>
+                <TableCell>
+                  <Skeleton className="h-7 w-28" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   )
 }
@@ -122,7 +143,7 @@ export function SecurityFindingsSkeleton() {
       {Array.from({ length: 4 }, (_, index) => (
         <div
           key={index}
-          className="flex items-center gap-2 border-b py-3 last:border-b-0"
+          className="flex flex-wrap items-center gap-2 border-b py-3 last:border-b-0"
         >
           <Skeleton className="h-4 w-14 shrink-0" />
           <Skeleton className="h-4 min-w-0 flex-1" />
@@ -148,7 +169,7 @@ export function ReviewFindingsSkeleton() {
 export function RepoDetailPageSkeleton() {
   return (
     <main
-      className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-6 bg-background p-6"
+      className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-6 bg-background p-4 md:p-6"
       aria-busy="true"
       aria-live="polite"
     >
@@ -167,13 +188,20 @@ export function RepoDetailPageSkeleton() {
 export function AuthGateSkeleton() {
   return (
     <div
-      className="flex min-h-svh flex-col bg-background p-6"
+      className="flex min-h-svh flex-col bg-background p-4 md:p-6"
       aria-busy="true"
       aria-live="polite"
     >
       <ScreenReaderStatus label="Loading account" />
       <div className="mx-auto flex w-full max-w-4xl flex-col items-center gap-8">
-        <Card className="w-full max-w-sm">
+        <div className="flex w-full items-center justify-between md:hidden">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+          <Skeleton className="size-8 rounded-lg" />
+        </div>
+        <Card className="hidden w-full max-w-sm md:flex">
           <CardHeader>
             <CardTitle>
               <Skeleton className="h-5 w-40" />

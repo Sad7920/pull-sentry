@@ -1,7 +1,13 @@
-import "dotenv/config"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { clerkMiddleware } from "@clerk/express"
 import * as Sentry from "@sentry/node"
+import dotenv from "dotenv"
 import express from "express"
+
+dotenv.config({
+  path: path.join(path.dirname(fileURLToPath(import.meta.url)), ".env"),
+})
 
 import { listGithubRepos } from "./github.js"
 import {
