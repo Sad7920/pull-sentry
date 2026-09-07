@@ -17,12 +17,14 @@ import {
   listConnectedRepoPulls,
   listConnectedRepos,
 } from "./repos.js"
+import { expensiveMutationLimiter } from "./rate-limit.js"
 import { listRepoReviews, reviewPullRequest } from "./reviews.js"
 import { syncUser } from "./users.js"
 
 const port = Number(process.env.PORT) || 3001
 const app = express()
 
+app.set("trust proxy", 1)
 app.use(express.json())
 
 app.get("/health", (_req, res) => {
@@ -31,21 +33,36 @@ app.get("/health", (_req, res) => {
 
 app.post("/api/users/sync", syncUser)
 app.get("/api/github/repos", clerkMiddleware(), listGithubRepos)
-app.post("/api/repos/connect", clerkMiddleware(), connectRepo)
+app.post(
+  "/api/repos/connect",
+  clerkMiddleware(),
+  expensiveMutationLimiter,
+  connectRepo
+)
 app.get("/api/repos/connected", clerkMiddleware(), listConnectedRepos)
 app.get("/api/repos/:id/prs", clerkMiddleware(), listConnectedRepoPulls)
 app.get("/api/repos/:id/reviews", clerkMiddleware(), listRepoReviews)
-app.post("/api/repos/:id/index", clerkMiddleware(), (req, res, next) => {
-  req.setTimeout(15 * 60 * 1000)
-  res.setTimeout(15 * 60 * 1000)
-  Promise.resolve(indexConnectedRepo(req, res)).catch(next)
-})
+app.post(
+  "/api/repos/:id/index",
+  clerkMiddleware(),
+  expensiveMutationLimiter,
+  (req, res, next) => {
+    req.setTimeout(15 * 60 * 1000)
+    res.setTimeout(15 * 60 * 1000)
+    Promise.resolve(indexConnectedRepo(req, res)).catch(next)
+  }
+)
 app.get("/api/repos/:id", clerkMiddleware(), getConnectedRepo)
-app.post("/api/prs/:prNumber/review", clerkMiddleware(), (req, res, next) => {
-  req.setTimeout(10 * 60 * 1000)
-  res.setTimeout(10 * 60 * 1000)
-  Promise.resolve(reviewPullRequest(req, res)).catch(next)
-})
+app.post(
+  "/api/prs/:prNumber/review",
+  clerkMiddleware(),
+  expensiveMutationLimiter,
+  (req, res, next) => {
+    req.setTimeout(10 * 60 * 1000)
+    res.setTimeout(10 * 60 * 1000)
+    Promise.resolve(reviewPullRequest(req, res)).catch(next)
+  }
+)
 
 Sentry.setupExpressErrorHandler(app)
 

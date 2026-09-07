@@ -40,6 +40,7 @@ export function DashboardPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [connectionsError, setConnectionsError] = useState(null)
   const [availableError, setAvailableError] = useState(null)
+  const [connectError, setConnectError] = useState(null)
 
   const signedInWithGithub = user.externalAccounts.some(
     (account) => account.provider === "github"
@@ -134,6 +135,7 @@ export function DashboardPage() {
 
   async function handleConnect(repo) {
     setConnectingRepoId(repo.id)
+    setConnectError(null)
     try {
       const headers = await authHeaders()
       const response = await fetch("/api/repos/connect", {
@@ -146,13 +148,15 @@ export function DashboardPage() {
           externalRepoId: String(repo.id),
         }),
       })
-
+      const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        return
+        throw new Error(data.error ?? "Failed to connect repository")
       }
 
       setBrowsingMore(false)
       await refreshConnectedRepos()
+    } catch (error) {
+      setConnectError(error.message)
     } finally {
       setConnectingRepoId(null)
     }
@@ -275,46 +279,62 @@ export function DashboardPage() {
               <AlertDescription>{availableError}</AlertDescription>
             </Alert>
           ) : (
-            availableRepos
-              .filter(
-                (repo) =>
-                  !connectedRepos.some(
-                    (connected) => connected.externalRepoId === String(repo.id)
-                  )
-              )
-              .map((repo) => {
-                const isConnecting = connectingRepoId === repo.id
-
-                return (
-                  <Card key={repo.full_name}>
-                    <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <CardTitle className="truncate">{repo.name}</CardTitle>
-                          <Badge variant={repo.private ? "secondary" : "outline"}>
-                            {repo.private ? "Private" : "Public"}
-                          </Badge>
-                        </div>
-                        {repo.description ? (
-                          <CardDescription className="truncate">
-                            {repo.description}
-                          </CardDescription>
-                        ) : null}
-                      </div>
-                      <Button
-                        className="self-end sm:self-center"
-                        disabled={connectingRepoId !== null}
-                        onClick={() => handleConnect(repo)}
-                      >
-                        {isConnecting ? (
-                          <Spinner data-icon="inline-start" />
-                        ) : null}
-                        {isConnecting ? "Connecting..." : "Connect"}
-                      </Button>
-                    </CardContent>
-                  </Card>
+            <>
+              {connectError ? (
+                <Alert variant="destructive">
+                  <AlertCircleIcon />
+                  <AlertTitle>
+                    {/too many requests/i.test(connectError)
+                      ? "Too many requests"
+                      : "Could not connect repository"}
+                  </AlertTitle>
+                  <AlertDescription>{connectError}</AlertDescription>
+                </Alert>
+              ) : null}
+              {availableRepos
+                .filter(
+                  (repo) =>
+                    !connectedRepos.some(
+                      (connected) =>
+                        connected.externalRepoId === String(repo.id)
+                    )
                 )
-              })
+                .map((repo) => {
+                  const isConnecting = connectingRepoId === repo.id
+
+                  return (
+                    <Card key={repo.full_name}>
+                      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <CardTitle className="truncate">{repo.name}</CardTitle>
+                            <Badge
+                              variant={repo.private ? "secondary" : "outline"}
+                            >
+                              {repo.private ? "Private" : "Public"}
+                            </Badge>
+                          </div>
+                          {repo.description ? (
+                            <CardDescription className="truncate">
+                              {repo.description}
+                            </CardDescription>
+                          ) : null}
+                        </div>
+                        <Button
+                          className="self-end sm:self-center"
+                          disabled={connectingRepoId !== null}
+                          onClick={() => handleConnect(repo)}
+                        >
+                          {isConnecting ? (
+                            <Spinner data-icon="inline-start" />
+                          ) : null}
+                          {isConnecting ? "Connecting..." : "Connect"}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+            </>
           )}
         </div>
       ) : !signedInWithGithub && !hasConnectedRepos ? (

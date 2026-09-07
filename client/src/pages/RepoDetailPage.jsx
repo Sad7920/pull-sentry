@@ -289,7 +289,11 @@ function PullRequestReviewBlock({
       {reviewError ? (
         <Alert variant="destructive">
           <AlertCircleIcon />
-          <AlertTitle>Review failed</AlertTitle>
+          <AlertTitle>
+            {/too many requests/i.test(reviewError)
+              ? "Too many requests"
+              : "Review failed"}
+          </AlertTitle>
           <AlertDescription>{reviewError}</AlertDescription>
         </Alert>
       ) : null}
@@ -582,7 +586,17 @@ function SettingsTab({ repo, onIndexed }) {
             Indexed {formatDate(repo.indexedAt)}
           </p>
         ) : null}
-        {error ? <p className="text-destructive">{error}</p> : null}
+        {error ? (
+          <Alert variant="destructive">
+            <AlertCircleIcon />
+            <AlertTitle>
+              {/too many requests/i.test(error)
+                ? "Too many requests"
+                : "Indexing failed"}
+            </AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
         <Button disabled={indexing} onClick={handleIndex}>
           {indexing ? <Spinner data-icon="inline-start" /> : null}
           {indexing ? "Indexing..." : "Index Repo"}
