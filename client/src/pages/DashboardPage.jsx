@@ -3,6 +3,10 @@ import { LogOutIcon, PlusIcon } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
+import {
+  AvailableReposSkeleton,
+  ConnectedReposSkeleton,
+} from "@/components/page-skeletons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -31,6 +35,7 @@ export function DashboardPage() {
   const [browsingMore, setBrowsingMore] = useState(false)
   const [connectingRepoId, setConnectingRepoId] = useState(null)
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false)
+  const [hasLoadedAvailableRepos, setHasLoadedAvailableRepos] = useState(false)
 
   const signedInWithGithub = user.externalAccounts.some(
     (account) => account.provider === "github"
@@ -92,9 +97,11 @@ export function DashboardPage() {
       .then((response) => response.json())
       .then((data) => {
         setAvailableRepos(Array.isArray(data) ? data : [])
+        setHasLoadedAvailableRepos(true)
       })
       .catch(() => {
         setAvailableRepos([])
+        setHasLoadedAvailableRepos(true)
       })
   }, [authHeaders, showBrowseList])
 
@@ -142,7 +149,9 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      {hasLoadedConnections && hasConnectedRepos && !browsingMore ? (
+      {!hasLoadedConnections ? (
+        <ConnectedReposSkeleton />
+      ) : hasConnectedRepos && !browsingMore ? (
         <div className="flex w-full max-w-4xl flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-heading text-base font-medium">
@@ -190,41 +199,45 @@ export function DashboardPage() {
               </Button>
             </div>
           ) : null}
-          {availableRepos
-            .filter(
-              (repo) =>
-                !connectedRepos.some(
-                  (connected) => connected.externalRepoId === String(repo.id)
-                )
-            )
-            .map((repo) => {
-            const isConnecting = connectingRepoId === repo.id
+          {!hasLoadedAvailableRepos ? (
+            <AvailableReposSkeleton />
+          ) : (
+            availableRepos
+              .filter(
+                (repo) =>
+                  !connectedRepos.some(
+                    (connected) => connected.externalRepoId === String(repo.id)
+                  )
+              )
+              .map((repo) => {
+                const isConnecting = connectingRepoId === repo.id
 
-            return (
-              <Card key={repo.full_name}>
-                <CardHeader className="flex-row items-center gap-3">
-                  <CardTitle className="truncate">{repo.name}</CardTitle>
-                  <CardDescription className="min-w-0 flex-1 truncate">
-                    {repo.description}
-                  </CardDescription>
-                  <Badge variant={repo.private ? "secondary" : "outline"}>
-                    {repo.private ? "Private" : "Public"}
-                  </Badge>
-                  <Button
-                    disabled={isConnecting}
-                    onClick={() => handleConnect(repo)}
-                  >
-                    {isConnecting ? (
-                      <Spinner data-icon="inline-start" />
-                    ) : null}
-                    {isConnecting ? "Connecting..." : "Connect"}
-                  </Button>
-                </CardHeader>
-              </Card>
-            )
-          })}
+                return (
+                  <Card key={repo.full_name}>
+                    <CardHeader className="flex-row items-center gap-3">
+                      <CardTitle className="truncate">{repo.name}</CardTitle>
+                      <CardDescription className="min-w-0 flex-1 truncate">
+                        {repo.description}
+                      </CardDescription>
+                      <Badge variant={repo.private ? "secondary" : "outline"}>
+                        {repo.private ? "Private" : "Public"}
+                      </Badge>
+                      <Button
+                        disabled={connectingRepoId !== null}
+                        onClick={() => handleConnect(repo)}
+                      >
+                        {isConnecting ? (
+                          <Spinner data-icon="inline-start" />
+                        ) : null}
+                        {isConnecting ? "Connecting..." : "Connect"}
+                      </Button>
+                    </CardHeader>
+                  </Card>
+                )
+              })
+          )}
         </div>
-      ) : !signedInWithGithub && hasLoadedConnections && !hasConnectedRepos ? (
+      ) : !signedInWithGithub && !hasConnectedRepos ? (
         <div className="flex gap-3">
           <Button>Connect GitHub</Button>
           <Button variant="outline">Connect GitLab</Button>

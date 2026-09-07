@@ -4,6 +4,12 @@ import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 
 import {
+  PullRequestsTableSkeleton,
+  RepoDetailPageSkeleton,
+  ReviewFindingsSkeleton,
+  SecurityFindingsSkeleton,
+} from "@/components/page-skeletons"
+import {
   Accordion,
   AccordionContent,
   AccordionItem,
@@ -311,11 +317,7 @@ function PullRequestsTab({ repoId, onReviewed }) {
   }, [getToken, repoId])
 
   if (!pulls && !error) {
-    return (
-      <div className="flex justify-center py-10">
-        <Spinner />
-      </div>
-    )
+    return <PullRequestsTableSkeleton />
   }
 
   if (error) {
@@ -359,7 +361,7 @@ function PullRequestsTab({ repoId, onReviewed }) {
                 <div className="flex min-w-56 flex-col items-start gap-3">
                   <Button
                     size="sm"
-                    disabled={isReviewing}
+                    disabled={reviewingNumber !== null}
                     onClick={(event) => {
                       event.stopPropagation()
                       handleReview(pull.number)
@@ -368,6 +370,7 @@ function PullRequestsTab({ repoId, onReviewed }) {
                     {isReviewing ? <Spinner data-icon="inline-start" /> : null}
                     {isReviewing ? "Reviewing..." : "Review this PR"}
                   </Button>
+                  {isReviewing && !review ? <ReviewFindingsSkeleton /> : null}
                   {reviewError ? (
                     <Alert variant="destructive">
                       <AlertCircleIcon />
@@ -430,11 +433,7 @@ function SecurityTab({ repoId, refreshKey }) {
   }, [getToken, repoId, refreshKey])
 
   if (!findings && !error) {
-    return (
-      <div className="flex justify-center py-10">
-        <Spinner />
-      </div>
-    )
+    return <SecurityFindingsSkeleton />
   }
 
   if (error) {
@@ -547,11 +546,7 @@ export function RepoDetailPage() {
   }, [getToken, id])
 
   if (!repo && !error) {
-    return (
-      <div className="flex min-h-svh items-center justify-center bg-background">
-        <Spinner />
-      </div>
-    )
+    return <RepoDetailPageSkeleton />
   }
 
   if (error) {
