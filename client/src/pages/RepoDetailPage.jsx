@@ -3,6 +3,12 @@ import { ArrowLeftIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -46,6 +52,75 @@ function formatDate(value) {
   })
 }
 
+function severityVariant(severity) {
+  if (severity === "high") {
+    return "destructive"
+  }
+  if (severity === "low") {
+    return "secondary"
+  }
+  return "default"
+}
+
+function formatConfidence(confidence) {
+  if (typeof confidence !== "number") {
+    return "No confidence score"
+  }
+
+  return `${Math.round(confidence * 100)}% confidence`
+}
+
+function ReviewFindings({ findings }) {
+  const groups = ["high", "medium", "low"]
+    .map((severity) => ({
+      severity,
+      items: findings.filter((finding) => finding.severity === severity),
+    }))
+    .filter((group) => group.items.length > 0)
+
+  if (groups.length === 0) {
+    return <RepoEmptyState title="No findings" />
+  }
+
+  return (
+    <Accordion multiple defaultValue={groups.map((group) => group.severity)}>
+      {groups.map((group) => (
+        <AccordionItem key={group.severity} value={group.severity}>
+          <AccordionTrigger>
+            <span className="flex items-center gap-2">
+              <Badge variant={severityVariant(group.severity)}>
+                {group.severity}
+              </Badge>
+              <span>
+                {group.items.length}{" "}
+                {group.items.length === 1 ? "finding" : "findings"}
+              </span>
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <ul className="flex flex-col gap-3">
+              {group.items.map((finding, index) => (
+                <li key={`${finding.file}-${finding.line}-${index}`}>
+                  <p>{finding.description}</p>
+                  <p className="text-muted-foreground">
+                    {[
+                      finding.file,
+                      finding.line ? `line ${finding.line}` : null,
+                      formatConfidence(finding.confidence),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
+  )
+}
+
 function prStateVariant(state) {
   if (state === "open") {
     return "success"
@@ -60,6 +135,38 @@ function PullRequestsTab({ repoId }) {
   const { getToken } = useAuth()
   const [pulls, setPulls] = useState(null)
   const [error, setError] = useState(null)
+  const [reviews, setReviews] = useState({})
+  const [reviewingNumber, setReviewingNumber] = useState(null)
+  const [reviewErrors, setReviewErrors] = useState({})
+
+  async function handleReview(prNumber) {
+    setReviewingNumber(prNumber)
+    setReviewErrors((current) => ({ ...current, [prNumber]: null }))
+
+    try {
+      const token = await getToken()
+      const response = await fetch(`/api/prs/${prNumber}/review`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ repoId }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error ?? "Review failed")
+      }
+      setReviews((current) => ({ ...current, [prNumber]: data }))
+    } catch (err) {
+      setReviewErrors((current) => ({
+        ...current,
+        [prNumber]: err.message,
+      }))
+    } finally {
+      setReviewingNumber(null)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -118,20 +225,54 @@ function PullRequestsTab({ repoId }) {
           <TableHead>Author</TableHead>
           <TableHead>State</TableHead>
           <TableHead>Created</TableHead>
+          <TableHead className="w-0" />
         </TableRow>
       </TableHeader>
       <TableBody>
-        {pulls.map((pull) => (
-          <TableRow key={pull.number}>
-            <TableCell>#{pull.number}</TableCell>
-            <TableCell className="max-w-xs truncate">{pull.title}</TableCell>
-            <TableCell>{pull.author ?? "—"}</TableCell>
-            <TableCell>
-              <Badge variant={prStateVariant(pull.state)}>{pull.state}</Badge>
-            </TableCell>
-            <TableCell>{formatDate(pull.created_at)}</TableCell>
-          </TableRow>
-        ))}
+        {pulls.map((pull) => {
+          const isReviewing = reviewingNumber === pull.number
+          const review = reviews[pull.number]
+          const reviewError = reviewErrors[pull.number]
+
+          return (
+            <TableRow key={pull.number}>
+              <TableCell>#{pull.number}</TableCell>
+              <TableCell className="max-w-xs truncate">{pull.title}</TableCell>
+              <TableCell>{pull.author ?? "—"}</TableCell>
+              <TableCell>
+                <Badge variant={prStateVariant(pull.state)}>
+                  {pull.state}
+                </Badge>
+              </TableCell>
+              <TableCell>{formatDate(pull.created_at)}</TableCell>
+              <TableCell>
+                <div className="flex min-w-56 flex-col items-start gap-3">
+                  <Button
+                    size="sm"
+                    disabled={isReviewing}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleReview(pull.number)
+                    }}
+                  >
+                    {isReviewing ? <Spinner data-icon="inline-start" /> : null}
+                    {isReviewing ? "Reviewing..." : "Review this PR"}
+                  </Button>
+                  {reviewError ? (
+                    <p className="text-destructive">{reviewError}</p>
+                  ) : null}
+                  {review ? (
+                    <ReviewFindings
+                      findings={
+                        Array.isArray(review.findings) ? review.findings : []
+                      }
+                    />
+                  ) : null}
+                </div>
+              </TableCell>
+            </TableRow>
+          )
+        })}
       </TableBody>
     </Table>
   )
@@ -253,7 +394,7 @@ export function RepoDetailPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-4xl flex-col gap-6 bg-background p-6">
+    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-6 bg-background p-6">
       <div className="flex flex-col gap-4">
         <Button
           variant="outline"
@@ -286,9 +427,7 @@ export function RepoDetailPage() {
         <TabsContent value="settings">
           <SettingsTab
             repo={repo}
-            onIndexed={(indexed) => {
-              setRepo((current) => ({ ...current, ...indexed }))
-            }}
+            onIndexed={(indexed) => setRepo((current) => ({ ...current, ...indexed }))}
           />
         </TabsContent>
       </Tabs>

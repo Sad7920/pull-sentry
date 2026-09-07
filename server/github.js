@@ -142,14 +142,24 @@ export async function fetchPullDiff(userId, owner, repo, pullNumber) {
     return null
   }
 
-  const response = await octokit.rest.pulls.get({
-    owner,
-    repo,
-    pull_number: pullNumber,
-    mediaType: { format: "diff" },
-  })
+  try {
+    const response = await octokit.rest.pulls.get({
+      owner,
+      repo,
+      pull_number: pullNumber,
+      mediaType: { format: "diff" },
+    })
 
-  return typeof response.data === "string" ? response.data : ""
+    return typeof response.data === "string" ? response.data : ""
+  } catch (error) {
+    if (error.status === 404) {
+      const notFound = new Error("Pull request not found on GitHub")
+      notFound.code = "GITHUB_PR_NOT_FOUND"
+      throw notFound
+    }
+
+    throw error
+  }
 }
 
 export async function listGithubRepos(req, res) {

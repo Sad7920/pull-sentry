@@ -1,3 +1,4 @@
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai"
 import { ChatGroq } from "@langchain/groq"
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
 
@@ -40,6 +41,35 @@ function getModel() {
     temperature: 0,
     apiKey: process.env.GROQ_API_KEY,
   })
+}
+
+function getGeminiModel() {
+  const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
+
+  if (!apiKey) {
+    const error = new Error("GOOGLE_API_KEY is not set")
+    error.code = "GEMINI_UNAVAILABLE"
+    throw error
+  }
+
+  return new ChatGoogleGenerativeAI({
+    model: "gemini-3.6-flash",
+    apiKey,
+  })
+}
+
+function normalizeConfidence(value) {
+  const number = Number(value)
+
+  if (Number.isNaN(number)) {
+    return null
+  }
+
+  if (number > 1 && number <= 100) {
+    return Math.round(number) / 100
+  }
+
+  return Math.min(1, Math.max(0, number))
 }
 
 function messageText(content) {
@@ -89,6 +119,7 @@ function normalizeFindings(items, category) {
             : Number.parseInt(item.line, 10) || null,
         description: String(item.description ?? "").trim(),
         category,
+        confidence: normalizeConfidence(item.confidence),
       }
     })
     .filter((item) => item.description)
@@ -104,10 +135,30 @@ function diffSearchQuery(diff) {
   return (added || diff).slice(0, 4000)
 }
 
+function providerError(provider, code, error) {
+  const detail =
+    error.error?.error?.message ??
+    error.error?.message ??
+    error.message ??
+    "Unknown error"
+  const wrapped = new Error(`${provider}: ${detail}`)
+  wrapped.code = code
+  wrapped.status = error.status
+  return wrapped
+}
+
 async function askForFindings(prompt) {
-  const model = getModel()
-  const response = await model.invoke(prompt)
-  return parseJsonArray(messageText(response.content))
+  try {
+    const model = getModel()
+    const response = await model.invoke(prompt)
+    return parseJsonArray(messageText(response.content))
+  } catch (error) {
+    if (error.code === "GROQ_UNAVAILABLE") {
+      throw error
+    }
+
+    throw providerError("Groq", "GROQ_ERROR", error)
+  }
 }
 
 async function fetchDiffNode(state) {
@@ -198,16 +249,53 @@ ${JSON.stringify(state.styleFindings)}`
   return { findings }
 }
 
+async function sanityCheckNode(state) {
+  try {
+    const model = getGeminiModel()
+    const response = await model.invoke(
+      `You are a second-pass reviewer. Sanity-check the synthesized findings against the original pull request diff.
+Drop false positives. Add any obvious missed issues. Assign a confidence score from 0 to 1 for each finding.
+
+Return a JSON array only. Each item: {"severity":"high"|"medium"|"low","file":string|null,"line":number|null,"description":string,"confidence":number}.
+If nothing remains, return [].
+
+Synthesized findings:
+${JSON.stringify(state.findings)}
+
+Diff:
+${state.diff}`
+    )
+
+    const checked = normalizeFindings(
+      parseJsonArray(messageText(response.content)),
+      "review"
+    ).sort(
+      (left, right) =>
+        (severityRank[left.severity] ?? 1) - (severityRank[right.severity] ?? 1)
+    )
+
+    return { findings: checked }
+  } catch (error) {
+    if (error.code === "GEMINI_UNAVAILABLE") {
+      throw error
+    }
+
+    throw providerError("Gemini", "GEMINI_ERROR", error)
+  }
+}
+
 const reviewGraph = new StateGraph(ReviewState)
   .addNode("fetchDiff", fetchDiffNode)
   .addNode("security", securityNode)
   .addNode("style", styleNode)
   .addNode("synthesize", synthesizeNode)
+  .addNode("sanityCheck", sanityCheckNode)
   .addEdge(START, "fetchDiff")
   .addEdge("fetchDiff", "security")
   .addEdge("security", "style")
   .addEdge("style", "synthesize")
-  .addEdge("synthesize", END)
+  .addEdge("synthesize", "sanityCheck")
+  .addEdge("sanityCheck", END)
   .compile()
 
 export async function runPrReview({

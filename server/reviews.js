@@ -82,22 +82,30 @@ export async function reviewPullRequest(req, res) {
       createdAt: review.createdAt,
     })
   } catch (error) {
+    console.error(error)
+
     if (error.code === "GITHUB_UNAUTHORIZED") {
       res.status(401).json({ error: error.message })
       return
     }
 
-    if (error.code === "GROQ_UNAVAILABLE") {
+    if (error.code === "GITHUB_PR_NOT_FOUND") {
+      res.status(404).json({ error: error.message })
+      return
+    }
+
+    if (error.code === "GROQ_UNAVAILABLE" || error.code === "GEMINI_UNAVAILABLE") {
       res.status(503).json({ error: error.message })
       return
     }
 
-    if (error.status === 404) {
-      res.status(404).json({ error: "Pull request not found" })
+    if (error.code === "GROQ_ERROR" || error.code === "GEMINI_ERROR") {
+      res.status(502).json({ error: error.message })
       return
     }
 
-    console.error(error)
-    res.status(502).json({ error: "Failed to review pull request" })
+    res.status(502).json({
+      error: error.message || "Failed to review pull request",
+    })
   }
 }
