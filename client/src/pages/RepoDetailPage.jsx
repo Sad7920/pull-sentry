@@ -58,9 +58,9 @@ function severityVariant(severity) {
     return "destructive"
   }
   if (severity === "low") {
-    return "secondary"
+    return "success"
   }
-  return "default"
+  return "warning"
 }
 
 function formatConfidence(confidence) {
