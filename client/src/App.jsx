@@ -4,6 +4,7 @@ import { CookieConsent } from "@/components/CookieConsent"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
 import { DashboardPage } from "@/pages/DashboardPage"
 import { LoginPage } from "@/pages/LoginPage"
+import { NotFoundPage } from "@/pages/NotFoundPage"
 import { PrivacyPolicyPage } from "@/pages/PrivacyPolicyPage"
 import { RepoDetailPage } from "@/pages/RepoDetailPage"
 import { TermsOfServicePage } from "@/pages/TermsOfServicePage"
@@ -19,7 +20,8 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/repo/:id" element={<RepoDetailPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
       <CookieConsent />
     </>
