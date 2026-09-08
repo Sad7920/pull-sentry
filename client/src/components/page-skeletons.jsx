@@ -172,17 +172,6 @@ export function SecurityFindingsSkeleton() {
   )
 }
 
-export function ReviewFindingsSkeleton() {
-  return (
-    <div className="flex w-full flex-col gap-2" aria-busy="true">
-      <ScreenReaderStatus label="Loading review results" />
-      <Skeleton className="h-4 w-full" />
-      <Skeleton className="h-4 w-5/6" />
-      <Skeleton className="h-4 w-2/3" />
-    </div>
-  )
-}
-
 export function RepoDetailPageSkeleton() {
   return (
     <main

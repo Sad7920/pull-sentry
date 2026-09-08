@@ -95,6 +95,14 @@ export function formatUpdatedAgo(isoDate) {
   return `Updated ${ago}`
 }
 
+export function formatShortDate(value) {
+  return new Date(value).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
 export function formatIndexedAgo(isoDate) {
   const ago = formatTimeAgo(isoDate)
   if (!ago) {

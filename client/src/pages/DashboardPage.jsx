@@ -3,6 +3,7 @@ import { EllipsisVerticalIcon, FolderGit2Icon, PlusIcon, StarIcon } from "lucide
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
+import { PageEmptyState } from "@/components/PageEmptyState"
 import {
   AvailableReposSkeleton,
   ConnectedReposSkeleton,
@@ -36,25 +37,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Spinner } from "@/components/ui/spinner"
+import { authedFetch } from "@/lib/api"
+import { toastApiError, toastSuccess } from "@/lib/app-toast"
 import {
+  formatShortDate,
   formatStarCount,
   formatUpdatedAgo,
   languageColor,
 } from "@/lib/github-repo-meta"
-import {
-  apiErrorFromResponse,
-  toastApiError,
-  toastSuccess,
-} from "@/lib/app-toast"
+import { severityDotClass } from "@/lib/severity"
 import { cn } from "@/lib/utils"
-
-function formatConnectedDate(value) {
-  return new Date(value).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  })
-}
 
 function LanguageDot({ language }) {
   const color = languageColor(language)
@@ -73,16 +65,6 @@ function LanguageDot({ language }) {
 
 function stopCardNavigation(event) {
   event.stopPropagation()
-}
-
-function severityDotClass(severity) {
-  if (severity === "high") {
-    return "bg-destructive"
-  }
-  if (severity === "low") {
-    return "bg-emerald-500"
-  }
-  return "bg-amber-500"
 }
 
 function openPrLabel(count) {
@@ -126,7 +108,7 @@ function ConnectedRepoCard({ repo, onOpen, onDisconnect }) {
             <p className="flex items-center gap-1.5 text-sm text-foreground/80">
               <span
                 aria-hidden="true"
-                className={`size-2 shrink-0 rounded-full ${severityDotClass(repo.highestSeverity)}`}
+                className={cn("size-2 shrink-0 rounded-full", severityDotClass(repo.highestSeverity))}
               />
               {repo.findingCount === 1
                 ? "1 issue flagged"
@@ -136,7 +118,7 @@ function ConnectedRepoCard({ repo, onOpen, onDisconnect }) {
             <p className="text-sm text-muted-foreground">No reviews yet</p>
           )}
           <CardDescription className="text-xs">
-            Connected {formatConnectedDate(repo.connectedAt)}
+            Connected {formatShortDate(repo.connectedAt)}
           </CardDescription>
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant="secondary">{repo.provider}</Badge>
@@ -155,7 +137,7 @@ function ConnectedRepoCard({ repo, onOpen, onDisconnect }) {
               aria-label={`Actions for ${repo.repoName}`}
               render={<Button variant="ghost" size="icon-sm" />}
             >
-              <EllipsisVerticalIcon />
+              <EllipsisVerticalIcon aria-hidden="true" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
@@ -244,6 +226,7 @@ export function DashboardPage() {
   const [connectingRepoId, setConnectingRepoId] = useState(null)
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false)
   const [hasLoadedAvailableRepos, setHasLoadedAvailableRepos] = useState(false)
+  const [availableError, setAvailableError] = useState(null)
   const [disconnectRepo, setDisconnectRepo] = useState(null)
   const [disconnecting, setDisconnecting] = useState(false)
 
@@ -254,24 +237,11 @@ export function DashboardPage() {
   const showBrowseList =
     signedInWithGithub && (!hasConnectedRepos || browsingMore)
 
-  const authHeaders = useCallback(async () => {
-    const token = await getToken()
-    return {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    }
-  }, [getToken])
-
   const refreshConnectedRepos = useCallback(async () => {
     try {
-      const headers = await authHeaders()
-      const response = await fetch("/api/repos/connected", { headers })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const error = new Error(data.error ?? "Failed to load connected repositories")
-        error.status = response.status
-        throw error
-      }
+      const data = await authedFetch(getToken, "/api/repos/connected", {
+        fallback: "Failed to load connected repositories",
+      })
       setConnectedRepos(Array.isArray(data) ? data : [])
     } catch (error) {
       setConnectedRepos([])
@@ -279,7 +249,7 @@ export function DashboardPage() {
     } finally {
       setHasLoadedConnections(true)
     }
-  }, [authHeaders])
+  }, [getToken])
 
   useEffect(() => {
     if (!isSynced) {
@@ -294,43 +264,50 @@ export function DashboardPage() {
       return
     }
 
-    authHeaders()
-      .then((headers) => fetch("/api/github/repos", { headers }))
-      .then(async (response) => {
-        const data = await response.json().catch(() => ({}))
-        if (!response.ok) {
-          const error = new Error(data.error ?? "Failed to load GitHub repositories")
-          error.status = response.status
-          throw error
+    let cancelled = false
+
+    async function loadAvailable() {
+      try {
+        const data = await authedFetch(getToken, "/api/github/repos", {
+          fallback: "Failed to load GitHub repositories",
+        })
+        if (!cancelled) {
+          setAvailableRepos(Array.isArray(data) ? data : [])
+          setAvailableError(null)
+          setHasLoadedAvailableRepos(true)
         }
-        setAvailableRepos(Array.isArray(data) ? data : [])
-        setHasLoadedAvailableRepos(true)
-      })
-      .catch((error) => {
-        setAvailableRepos([])
-        toastApiError(error, "Could not load GitHub repositories")
-        setHasLoadedAvailableRepos(true)
-      })
-  }, [authHeaders, showBrowseList])
+      } catch (error) {
+        if (!cancelled) {
+          setAvailableRepos([])
+          setAvailableError(error.message)
+          toastApiError(error, "Could not load GitHub repositories")
+          setHasLoadedAvailableRepos(true)
+        }
+      }
+    }
+
+    loadAvailable()
+
+    return () => {
+      cancelled = true
+    }
+  }, [getToken, showBrowseList])
 
   async function handleConnect(repo) {
     setConnectingRepoId(repo.id)
     try {
-      const headers = await authHeaders()
-      const response = await fetch("/api/repos/connect", {
+      await authedFetch(getToken, "/api/repos/connect", {
         method: "POST",
-        headers,
-        body: JSON.stringify({
+        body: {
           provider: "github",
           repoName: repo.full_name,
           repoUrl: repo.html_url,
           externalRepoId: String(repo.id),
           isPrivate: Boolean(repo.private),
-        }),
+        },
+        parseJson: false,
+        fallback: "Failed to connect repository",
       })
-      if (!response.ok) {
-        throw await apiErrorFromResponse(response, "Failed to connect repository")
-      }
 
       toastSuccess("Repository connected", repo.full_name)
       setBrowsingMore(false)
@@ -349,17 +326,11 @@ export function DashboardPage() {
 
     setDisconnecting(true)
     try {
-      const headers = await authHeaders()
-      const response = await fetch(`/api/repos/${disconnectRepo.id}`, {
+      await authedFetch(getToken, `/api/repos/${disconnectRepo.id}`, {
         method: "DELETE",
-        headers,
+        parseJson: false,
+        fallback: "Failed to disconnect repository",
       })
-      if (!response.ok) {
-        throw await apiErrorFromResponse(
-          response,
-          "Failed to disconnect repository"
-        )
-      }
 
       toastSuccess("Repository disconnected", disconnectRepo.repoName)
       setDisconnectRepo(null)
@@ -370,6 +341,13 @@ export function DashboardPage() {
       setDisconnecting(false)
     }
   }
+
+  const connectableRepos = availableRepos.filter(
+    (repo) =>
+      !connectedRepos.some(
+        (connected) => connected.externalRepoId === String(repo.id)
+      )
+  )
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col items-center gap-8 p-4 md:p-6">
@@ -410,35 +388,40 @@ export function DashboardPage() {
           ) : null}
           {!hasLoadedAvailableRepos ? (
             <AvailableReposSkeleton />
+          ) : availableError ? (
+            <PageEmptyState
+              icon="repo"
+              title="Couldn't load GitHub repositories"
+              description={availableError}
+            />
+          ) : connectableRepos.length === 0 ? (
+            <PageEmptyState
+              icon="repo"
+              title="No repositories to connect"
+              description="Every GitHub repo on this account is already connected, or none were returned."
+            />
           ) : (
-            availableRepos
-              .filter(
-                (repo) =>
-                  !connectedRepos.some(
-                    (connected) =>
-                      connected.externalRepoId === String(repo.id)
-                  )
-              )
-              .map((repo) => {
-                const isConnecting = connectingRepoId === repo.id
+            connectableRepos.map((repo) => {
+              const isConnecting = connectingRepoId === repo.id
 
-                return (
-                  <AvailableRepoCard
-                    key={repo.full_name}
-                    repo={repo}
-                    isConnecting={isConnecting}
-                    connectingBusy={connectingRepoId !== null}
-                    onConnect={handleConnect}
-                  />
-                )
-              })
+              return (
+                <AvailableRepoCard
+                  key={repo.full_name}
+                  repo={repo}
+                  isConnecting={isConnecting}
+                  connectingBusy={connectingRepoId !== null}
+                  onConnect={handleConnect}
+                />
+              )
+            })
           )}
         </div>
       ) : !signedInWithGithub && !hasConnectedRepos ? (
-        <div className="flex gap-3">
-          <Button>Connect GitHub</Button>
-          <Button variant="outline">Connect GitLab</Button>
-        </div>
+        <PageEmptyState
+          icon="repo"
+          title="No repositories connected"
+          description="Add GitHub to your account, then connect a repo to start reviewing pull requests."
+        />
       ) : null}
 
       <AlertDialog

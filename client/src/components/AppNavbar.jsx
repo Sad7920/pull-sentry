@@ -71,9 +71,7 @@ export function AppNavbar() {
         <div className="flex shrink-0 items-center gap-2">
           {creditsKnown ? (
             <Badge variant={creditsLow ? "warning" : "success"}>
-              <span className="">
-                {reviewCredits} {reviewCredits === 1 ? "credit" : "credits"} left
-              </span>
+              {reviewCredits} {reviewCredits === 1 ? "credit" : "credits"} left
             </Badge>
           ) : null}
 

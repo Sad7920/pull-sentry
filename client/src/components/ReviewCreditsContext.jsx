@@ -44,21 +44,19 @@ export function ReviewCreditsProvider({ children }) {
 
     let cancelled = false
 
-    fetch("/api/users/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(clerkUser),
-    })
-      .then(async (response) => {
+    async function syncAccount() {
+      try {
+        const response = await fetch("/api/users/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(clerkUser),
+        })
         const data = await response.json().catch(() => ({}))
         if (!response.ok) {
           const error = new Error(data.error ?? "Failed to sync account")
           error.status = response.status
           throw error
         }
-        return data
-      })
-      .then((data) => {
         if (cancelled) {
           return
         }
@@ -66,13 +64,15 @@ export function ReviewCreditsProvider({ children }) {
           setReviewCredits(data.reviewCredits)
         }
         setIsSynced(true)
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!cancelled) {
           toastApiError(error, "Couldn't sync account")
           setIsSynced(true)
         }
-      })
+      }
+    }
+
+    syncAccount()
 
     return () => {
       cancelled = true

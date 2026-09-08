@@ -15,7 +15,7 @@ export function LegalLayout({ title, updated, children }) {
         <p className="mt-2 text-sm text-muted-foreground">
           Last updated: {updated}
         </p>
-        <aside className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+        <aside className="mt-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground">
           <p className="font-medium">Placeholder — not a production legal document</p>
           <p className="mt-1 text-muted-foreground">
             PullSentry is a portfolio / demo project. This page is sample copy
