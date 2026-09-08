@@ -1,7 +1,9 @@
 import { useAuth, useUser } from "@clerk/react"
 import { Navigate, Outlet } from "react-router-dom"
 
+import { AppNavbar } from "@/components/AppNavbar"
 import { AuthGateSkeleton } from "@/components/page-skeletons"
+import { ReviewCreditsProvider } from "@/components/ReviewCreditsContext"
 
 export function ProtectedRoute() {
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth()
@@ -15,5 +17,12 @@ export function ProtectedRoute() {
     return <Navigate to="/login" replace />
   }
 
-  return <Outlet />
+  return (
+    <ReviewCreditsProvider>
+      <div className="min-h-svh bg-background">
+        <AppNavbar />
+        <Outlet />
+      </div>
+    </ReviewCreditsProvider>
+  )
 }

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom"
 
 import { CookieConsent } from "@/components/CookieConsent"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { DashboardPage } from "@/pages/DashboardPage"
 import { LoginPage } from "@/pages/LoginPage"
 import { NotFoundPage } from "@/pages/NotFoundPage"
@@ -11,7 +12,7 @@ import { TermsOfServicePage } from "@/pages/TermsOfServicePage"
 
 export default function App() {
   return (
-    <>
+    <TooltipProvider>
       <Routes>
         <Route path="/login/*" element={<LoginPage />} />
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
@@ -24,6 +25,6 @@ export default function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       <CookieConsent />
-    </>
+    </TooltipProvider>
   )
 }
