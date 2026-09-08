@@ -28,7 +28,7 @@ export function SettingsTab({ repo, onIndexed }) {
     setIndexing(true)
 
     try {
-      const data = await authedFetch(getToken, `/api/repos/${repo.id}/index`, {
+      const data = await authedFetch(getToken, `/repos/${repo.id}/index`, {
         method: "POST",
         fallback: "Indexing failed",
       })

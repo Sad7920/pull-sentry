@@ -17,7 +17,7 @@ export function SecurityTab({ repoId, securityRefreshKey, openTarget }) {
 
     async function loadFindings() {
       try {
-        const data = await authedFetch(getToken, `/api/repos/${repoId}/reviews`, {
+        const data = await authedFetch(getToken, `/repos/${repoId}/reviews`, {
           fallback: "Failed to load security findings",
         })
         if (!cancelled) {

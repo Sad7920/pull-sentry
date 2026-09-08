@@ -110,7 +110,7 @@ flowchart TD
 
 Credits are decremented in the same transaction that writes the `Review` row; if persistence fails after the LLM run, the credit is incremented back.
 
-The Vite dev server proxies `/api` and `/health` to the Express app (`localhost:3001`). The API binds `0.0.0.0` and uses `PORT` or **3001**. Chroma defaults to **8000**.
+The Vite dev server proxies `/api` to the Express app (`localhost:3001`). The API binds `0.0.0.0` and uses `PORT` or **3001**. Routes are versioned under `/api/v1`. Chroma defaults to **8000**.
 
 ## Getting started
 
@@ -192,7 +192,7 @@ npm run dev
 ```
 
 - Client: [http://localhost:5173](http://localhost:5173)
-- API: [http://localhost:3001](http://localhost:3001) (`GET /health` → `{ "status": "ok" }`)
+- API: [http://localhost:3001](http://localhost:3001) (`GET /api/v1/health` → `{ "status": "ok" }`)
 - Chroma: [http://localhost:8000](http://localhost:8000)
 
 On macOS, if the API watcher fails with too many open files, raise the limit and start the API without `--watch`:

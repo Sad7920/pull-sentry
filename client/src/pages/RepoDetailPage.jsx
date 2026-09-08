@@ -30,7 +30,7 @@ export function RepoDetailPage() {
 
     async function loadRepo() {
       try {
-        const data = await authedFetch(getToken, `/api/repos/${id}`, {
+        const data = await authedFetch(getToken, `/repos/${id}`, {
           fallback: "Repo not found",
         })
         if (!cancelled) {

@@ -273,7 +273,7 @@ export function DashboardPage() {
 
   const refreshConnectedRepos = useCallback(async () => {
     try {
-      const data = await authedFetch(getToken, "/api/repos/connected", {
+      const data = await authedFetch(getToken, "/repos/connected", {
         fallback: "Failed to load connected repositories",
       })
       setConnectedRepos(Array.isArray(data) ? data : [])
@@ -359,7 +359,7 @@ export function DashboardPage() {
 
     async function loadAvailable() {
       try {
-        const data = await authedFetch(getToken, "/api/github/repos", {
+        const data = await authedFetch(getToken, "/github/repos", {
           fallback: "Failed to load GitHub repositories",
         })
         if (!cancelled) {
@@ -387,7 +387,7 @@ export function DashboardPage() {
   async function handleConnect(repo) {
     setConnectingRepoId(repo.id)
     try {
-      await authedFetch(getToken, "/api/repos/connect", {
+      await authedFetch(getToken, "/repos/connect", {
         method: "POST",
         body: {
           provider: "github",
@@ -417,7 +417,7 @@ export function DashboardPage() {
 
     setDisconnecting(true)
     try {
-      await authedFetch(getToken, `/api/repos/${disconnectRepo.id}`, {
+      await authedFetch(getToken, `/repos/${disconnectRepo.id}`, {
         method: "DELETE",
         parseJson: false,
         fallback: "Failed to disconnect repository",

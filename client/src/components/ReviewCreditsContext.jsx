@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { useUser } from "@clerk/react"
 
+import { apiUrl } from "@/lib/api"
 import { toastApiError, toastWarning } from "@/lib/app-toast"
 
 const ReviewCreditsContext = createContext({
@@ -46,7 +47,7 @@ export function ReviewCreditsProvider({ children }) {
 
     async function syncAccount() {
       try {
-        const response = await fetch("/api/users/sync", {
+        const response = await fetch(apiUrl("/users/sync"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(clerkUser),

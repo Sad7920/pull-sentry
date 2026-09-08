@@ -186,7 +186,7 @@ export function PullRequestsTab({ repoId, indexed, onReviewed, onViewFindings })
     setReviewingNumber(prNumber)
 
     try {
-      const data = await authedFetch(getToken, `/api/prs/${prNumber}/review`, {
+      const data = await authedFetch(getToken, `/prs/${prNumber}/review`, {
         method: "POST",
         body: { repoId },
         fallback: "Review failed",
@@ -221,10 +221,10 @@ export function PullRequestsTab({ repoId, indexed, onReviewed, onViewFindings })
     async function loadPulls() {
       try {
         const [prsData, reviewsData] = await Promise.all([
-          authedFetch(getToken, `/api/repos/${repoId}/prs`, {
+          authedFetch(getToken, `/repos/${repoId}/prs`, {
             fallback: "Failed to load pull requests",
           }),
-          authedFetch(getToken, `/api/repos/${repoId}/reviews`, {
+          authedFetch(getToken, `/repos/${repoId}/reviews`, {
             fallback: "Failed to load security findings",
           }).catch(() => ({ findings: [] })),
         ])
