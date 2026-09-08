@@ -16,6 +16,7 @@ model User {
   id             String          @id @default(cuid())
   clerkId        String          @unique
   email          String
+  reviewCredits  Int             @default(10)
   createdAt      DateTime        @default(now())
   connectedRepos ConnectedRepo[]
 }
@@ -28,6 +29,7 @@ model ConnectedRepo {
   repoName       String
   repoUrl        String
   externalRepoId String
+  isPrivate      Boolean      @default(false)
   connectedAt    DateTime     @default(now())
   indexedAt      DateTime?
   reviews        Review[]
