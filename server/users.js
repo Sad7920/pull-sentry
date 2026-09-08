@@ -33,6 +33,13 @@ export async function syncUser(req, res) {
       where: { userId: user.id },
     })
 
+    console.log(
+      "users.sync",
+      user.clerkId,
+      "reviewCredits",
+      user.reviewCredits
+    )
+
     res.json({ ...user, connectedRepoCount })
   } catch (error) {
     captureCaughtError(error, { step: "users.sync" })

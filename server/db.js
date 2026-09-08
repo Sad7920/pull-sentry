@@ -1,3 +1,4 @@
+import pg from "pg"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { PrismaClient } from "./generated/client.ts"
 
@@ -7,7 +8,15 @@ if (!connectionString) {
   throw new Error("Missing DATABASE_URL")
 }
 
-const adapter = new PrismaPg({ connectionString })
+const pool = new pg.Pool({
+  connectionString,
+  max: 5,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 20_000,
+  keepAlive: true,
+})
+
+const adapter = new PrismaPg(pool)
 
 const globalForPrisma = globalThis
 

@@ -12,6 +12,7 @@ dotenv.config({
 import { listGithubRepos } from "./github.js"
 import {
   connectRepo,
+  disconnectRepo,
   getConnectedRepo,
   indexConnectedRepo,
   listConnectedRepoPulls,
@@ -40,6 +41,7 @@ app.post(
   connectRepo
 )
 app.get("/api/repos/connected", clerkMiddleware(), listConnectedRepos)
+app.delete("/api/repos/:id", clerkMiddleware(), disconnectRepo)
 app.get("/api/repos/:id/prs", clerkMiddleware(), listConnectedRepoPulls)
 app.get("/api/repos/:id/reviews", clerkMiddleware(), listRepoReviews)
 app.post(

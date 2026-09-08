@@ -64,6 +64,51 @@ function mapPull(pull) {
   }
 }
 
+export async function fetchConnectedRepoGithubSummaries(userId, repos, context = {}) {
+  const octokit = await getGithubOctokit(userId)
+  const summaries = new Map()
+
+  if (!octokit || repos.length === 0) {
+    return summaries
+  }
+
+  const fragments = repos.map(
+    (_, index) =>
+      `r${index}: repository(owner: $o${index}, name: $n${index}) { isPrivate pullRequests(states: [OPEN]) { totalCount } }`
+  )
+  const varDefs = repos
+    .map((_, index) => `$o${index}: String!, $n${index}: String!`)
+    .join(", ")
+  const variables = Object.fromEntries(
+    repos.flatMap((repo, index) => [
+      [`o${index}`, repo.owner],
+      [`n${index}`, repo.name],
+    ])
+  )
+
+  try {
+    const data = await octokit.graphql(
+      `query (${varDefs}) { ${fragments.join("\n")} }`,
+      variables
+    )
+
+    repos.forEach((repo, index) => {
+      const node = data[`r${index}`]
+      summaries.set(repo.id, {
+        isPrivate: typeof node?.isPrivate === "boolean" ? node.isPrivate : null,
+        openPrCount:
+          typeof node?.pullRequests?.totalCount === "number"
+            ? node.pullRequests.totalCount
+            : null,
+      })
+    })
+  } catch (error) {
+    captureCaughtError(error, { ...context, step: "github.dashboardSummaries" })
+  }
+
+  return summaries
+}
+
 export async function fetchRepoPulls(userId, owner, repo, context = {}) {
   const octokit = await getGithubOctokit(userId)
 
@@ -240,6 +285,8 @@ export async function listGithubRepos(req, res) {
         html_url: repo.html_url,
         private: repo.private,
         description: repo.description,
+        language: repo.language,
+        stargazers_count: repo.stargazers_count,
         updated_at: repo.updated_at,
       }))
     )

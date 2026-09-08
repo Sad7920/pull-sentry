@@ -59,6 +59,14 @@ export async function reviewPullRequest(req, res) {
     return
   }
 
+  if (user.reviewCredits < 1) {
+    res.status(403).json({
+      error:
+        "You're out of review credits. Reviews are paused until credits are restored.",
+    })
+    return
+  }
+
   try {
     const findings = await runPrReview({
       clerkUserId: user.clerkId,
@@ -68,12 +76,11 @@ export async function reviewPullRequest(req, res) {
       prNumber,
     })
 
-    const review = await prisma.review.create({
-      data: {
-        connectedRepoId: connectedRepo.id,
-        prNumber,
-        findings,
-      },
+    const { review, reviewCredits } = await persistReviewWithCredit({
+      userId: user.id,
+      connectedRepoId: connectedRepo.id,
+      prNumber,
+      findings,
     })
 
     res.json({
@@ -82,8 +89,17 @@ export async function reviewPullRequest(req, res) {
       prNumber: review.prNumber,
       findings: review.findings,
       createdAt: review.createdAt,
+      reviewCredits,
     })
   } catch (error) {
+    if (error.code === "NO_REVIEW_CREDITS") {
+      res.status(403).json({
+        error:
+          "You're out of review credits. Reviews are paused until credits are restored.",
+      })
+      return
+    }
+
     console.error(error)
     captureCaughtError(error, {
       repoId,
@@ -111,10 +127,80 @@ export async function reviewPullRequest(req, res) {
       return
     }
 
+    if (isRetryableDbError(error)) {
+      res.status(503).json({
+        error:
+          "The review finished, but saving it timed out. Please try again in a moment.",
+      })
+      return
+    }
+
     res.status(502).json({
       error: error.message || "Failed to review pull request",
     })
   }
+}
+
+function isRetryableDbError(error) {
+  return ["P2028", "P2024", "P1001", "P1017"].includes(error.code)
+}
+
+async function persistReviewWithCredit({
+  userId,
+  connectedRepoId,
+  prNumber,
+  findings,
+}) {
+  let lastError
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const updated = await prisma.user.updateMany({
+        where: { id: userId, reviewCredits: { gt: 0 } },
+        data: { reviewCredits: { decrement: 1 } },
+      })
+
+      if (updated.count === 0) {
+        throw Object.assign(new Error("You're out of review credits."), {
+          code: "NO_REVIEW_CREDITS",
+        })
+      }
+
+      try {
+        const review = await prisma.review.create({
+          data: {
+            connectedRepoId,
+            prNumber,
+            findings,
+          },
+        })
+        const refreshed = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { reviewCredits: true },
+        })
+
+        return { review, reviewCredits: refreshed.reviewCredits }
+      } catch (error) {
+        await prisma.user
+          .update({
+            where: { id: userId },
+            data: { reviewCredits: { increment: 1 } },
+          })
+          .catch(() => {})
+        throw error
+      }
+    } catch (error) {
+      lastError = error
+      if (error.code === "NO_REVIEW_CREDITS" || !isRetryableDbError(error)) {
+        throw error
+      }
+
+      await prisma.$queryRaw`SELECT 1`.catch(() => {})
+      await new Promise((resolve) => setTimeout(resolve, 400 * attempt))
+    }
+  }
+
+  throw lastError
 }
 
 export async function listRepoReviews(req, res) {

@@ -1,6 +1,10 @@
 import { getAuth } from "@clerk/express"
 
-import { fetchRepoPulls, fetchRepoSourceFiles } from "./github.js"
+import {
+  fetchConnectedRepoGithubSummaries,
+  fetchRepoPulls,
+  fetchRepoSourceFiles,
+} from "./github.js"
 import { indexSourceFiles } from "./indexer.js"
 import { prisma } from "./db.js"
 import { captureCaughtError } from "./sentry.js"
@@ -41,7 +45,7 @@ export async function connectRepo(req, res) {
     return
   }
 
-  const { provider, repoName, repoUrl, externalRepoId } = req.body ?? {}
+  const { provider, repoName, repoUrl, externalRepoId, isPrivate } = req.body ?? {}
 
   if (!providers.has(provider) || !repoName || !repoUrl || !externalRepoId) {
     res.status(400).json({
@@ -57,6 +61,7 @@ export async function connectRepo(req, res) {
       repoName,
       repoUrl,
       externalRepoId: String(externalRepoId),
+      isPrivate: Boolean(isPrivate),
     },
   })
 
@@ -72,9 +77,101 @@ export async function listConnectedRepos(req, res) {
   const connectedRepos = await prisma.connectedRepo.findMany({
     where: { userId: user.id },
     orderBy: { connectedAt: "desc" },
+    include: {
+      reviews: {
+        select: { findings: true },
+      },
+    },
   })
 
-  res.json(connectedRepos)
+  const githubLookups = connectedRepos.flatMap((repo) => {
+    if (repo.provider !== "github") {
+      return []
+    }
+
+    const parsed = parseOwnerRepo(repo.repoName)
+    if (!parsed) {
+      return []
+    }
+
+    return [{ id: repo.id, owner: parsed.owner, name: parsed.repo }]
+  })
+
+  const githubSummaries = await fetchConnectedRepoGithubSummaries(
+    user.clerkId,
+    githubLookups,
+    { step: "repos.listConnected" }
+  )
+
+  const summaries = connectedRepos.map((repo) => {
+    const github = githubSummaries.get(repo.id)
+
+    return {
+      id: repo.id,
+      userId: repo.userId,
+      provider: repo.provider,
+      repoName: repo.repoName,
+      repoUrl: repo.repoUrl,
+      externalRepoId: repo.externalRepoId,
+      isPrivate: github?.isPrivate ?? repo.isPrivate,
+      connectedAt: repo.connectedAt,
+      indexedAt: repo.indexedAt,
+      openPrCount: github?.openPrCount ?? null,
+      ...summarizeReviewFindings(repo.reviews),
+    }
+  })
+
+  res.json(summaries)
+}
+
+export async function disconnectRepo(req, res) {
+  const user = await findCurrentUser(req, res)
+  if (!user) {
+    return
+  }
+
+  const connectedRepo = await prisma.connectedRepo.findFirst({
+    where: {
+      id: req.params.id,
+      userId: user.id,
+    },
+  })
+
+  if (!connectedRepo) {
+    res.status(404).json({ error: "Repo not found" })
+    return
+  }
+
+  await prisma.connectedRepo.delete({
+    where: { id: connectedRepo.id },
+  })
+
+  res.status(204).end()
+}
+
+function summarizeReviewFindings(reviews) {
+  const rank = { high: 3, medium: 2, low: 1 }
+  let findingCount = 0
+  let highestSeverity = null
+
+  for (const review of reviews) {
+    const items = Array.isArray(review.findings) ? review.findings : []
+    findingCount += items.length
+
+    for (const item of items) {
+      const nextRank = rank[item.severity] ?? 0
+      const currentRank = rank[highestSeverity] ?? 0
+      if (nextRank > currentRank) {
+        highestSeverity = item.severity
+      }
+    }
+  }
+
+  return {
+    hasReviews: reviews.length > 0,
+    findingCount,
+    highestSeverity,
+  }
 }
 
 export async function getConnectedRepo(req, res) {
