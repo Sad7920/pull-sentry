@@ -132,7 +132,7 @@ Groq and Google AI Studio both issue free API keys without a credit card for typ
 ### Install
 
 ```bash
-git clone https://github.com/<your-org>/pull-sentry.git
+git clone https://github.com/Sad7920/pull-sentry.git
 cd pull-sentry
 npm install
 ```
