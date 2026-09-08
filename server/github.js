@@ -1,6 +1,8 @@
-import { clerkClient, getAuth } from "@clerk/express"
+import { clerkClient } from "@clerk/express"
 import { Octokit } from "octokit"
 
+import { requireClerkUserId } from "./lib/auth.js"
+import { AppError } from "./lib/errors.js"
 import { captureCaughtError } from "./sentry.js"
 
 const skipDirPattern =
@@ -150,28 +152,43 @@ export async function fetchPullTitles(userId, owner, repo, prNumbers, context = 
     return {}
   }
 
-  const uniqueNumbers = [...new Set(prNumbers.filter((number) => Number.isFinite(number)))]
-  const titles = {}
+  const uniqueNumbers = [
+    ...new Set(prNumbers.filter((number) => Number.isFinite(number))),
+  ]
 
-  await mapLimit(uniqueNumbers, fetchConcurrency, async (number) => {
-    try {
-      const { data } = await octokit.rest.pulls.get({
-        owner,
-        repo,
-        pull_number: number,
-      })
-      titles[number] = data.title ?? null
-    } catch (error) {
-      captureCaughtError(error, {
-        ...context,
-        prNumber: number,
-        step: "github.fetchPullTitles",
-      })
-      titles[number] = null
-    }
-  })
+  if (uniqueNumbers.length === 0) {
+    return {}
+  }
 
-  return titles
+  const varDefs = uniqueNumbers
+    .map((_, index) => `$n${index}: Int!`)
+    .join(", ")
+  const fields = uniqueNumbers
+    .map((_, index) => `p${index}: pullRequest(number: $n${index}) { number title }`)
+    .join("\n")
+  const variables = Object.fromEntries(
+    uniqueNumbers.map((number, index) => [`n${index}`, number])
+  )
+
+  try {
+    const data = await octokit.graphql(
+      `query ($owner: String!, $name: String!, ${varDefs}) {
+        repository(owner: $owner, name: $name) {
+          ${fields}
+        }
+      }`,
+      { owner, name: repo, ...variables }
+    )
+
+    const titles = {}
+    uniqueNumbers.forEach((number, index) => {
+      titles[number] = data.repository?.[`p${index}`]?.title ?? null
+    })
+    return titles
+  } catch (error) {
+    captureCaughtError(error, { ...context, step: "github.fetchPullTitles" })
+    return {}
+  }
 }
 
 export async function fetchRepoSourceFiles(userId, owner, repo, context = {}) {
@@ -182,41 +199,41 @@ export async function fetchRepoSourceFiles(userId, owner, repo, context = {}) {
   }
 
   try {
-  const { data: repository } = await octokit.rest.repos.get({ owner, repo })
-  const { data: tree } = await octokit.rest.git.getTree({
-    owner,
-    repo,
-    tree_sha: repository.default_branch,
-    recursive: "true",
-  })
-
-  const blobs = tree.tree
-    .filter(
-      (entry) =>
-        entry.type === "blob" &&
-        entry.path &&
-        entry.sha &&
-        !shouldSkipPath(entry.path) &&
-        (entry.size ?? 0) <= maxFileBytes
-    )
-    .slice(0, maxFiles)
-
-  const files = await mapLimit(blobs, fetchConcurrency, async (entry) => {
-    const { data } = await octokit.rest.git.getBlob({
+    const { data: repository } = await octokit.rest.repos.get({ owner, repo })
+    const { data: tree } = await octokit.rest.git.getTree({
       owner,
       repo,
-      file_sha: entry.sha,
+      tree_sha: repository.default_branch,
+      recursive: "true",
     })
-    const content = Buffer.from(data.content, "base64").toString("utf8")
 
-    if (content.includes("\u0000")) {
-      return null
-    }
+    const blobs = tree.tree
+      .filter(
+        (entry) =>
+          entry.type === "blob" &&
+          entry.path &&
+          entry.sha &&
+          !shouldSkipPath(entry.path) &&
+          (entry.size ?? 0) <= maxFileBytes
+      )
+      .slice(0, maxFiles)
 
-    return { path: entry.path, content }
-  })
+    const files = await mapLimit(blobs, fetchConcurrency, async (entry) => {
+      const { data } = await octokit.rest.git.getBlob({
+        owner,
+        repo,
+        file_sha: entry.sha,
+      })
+      const content = Buffer.from(data.content, "base64").toString("utf8")
 
-  return files.filter(Boolean)
+      if (content.includes("\u0000")) {
+        return null
+      }
+
+      return { path: entry.path, content }
+    })
+
+    return files.filter(Boolean)
   } catch (error) {
     captureCaughtError(error, { ...context, step: "github.fetchRepoSourceFiles" })
     throw error
@@ -257,18 +274,12 @@ export async function fetchPullDiff(userId, owner, repo, pullNumber, context = {
 }
 
 export async function listGithubRepos(req, res) {
-  const { isAuthenticated, userId } = getAuth(req)
-
-  if (!isAuthenticated) {
-    res.status(401).json({ error: "Unauthorized" })
-    return
-  }
-
+  req.sentryStep = "github.listRepos"
+  const userId = requireClerkUserId(req)
   const octokit = await getGithubOctokit(userId)
 
   if (!octokit) {
-    res.status(401).json({ error: "GitHub OAuth access token not found" })
-    return
+    throw new AppError(401, "GitHub OAuth access token not found")
   }
 
   try {
@@ -291,7 +302,7 @@ export async function listGithubRepos(req, res) {
       }))
     )
   } catch (error) {
-    captureCaughtError(error, { step: "github.listRepos" })
-    res.status(502).json({ error: "Failed to load GitHub repositories" })
+    captureCaughtError(error, { userId, step: "github.listRepos" })
+    throw new AppError(502, "Failed to load GitHub repositories")
   }
 }

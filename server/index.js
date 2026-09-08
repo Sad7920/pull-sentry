@@ -1,15 +1,11 @@
-import path from "node:path"
-import { fileURLToPath } from "node:url"
+import "./lib/env.js"
+
 import { clerkMiddleware } from "@clerk/express"
 import * as Sentry from "@sentry/node"
-import dotenv from "dotenv"
 import express from "express"
 
-dotenv.config({
-  path: path.join(path.dirname(fileURLToPath(import.meta.url)), ".env"),
-})
-
 import { listGithubRepos } from "./github.js"
+import { asyncHandler, apiErrorHandler, withTimeout } from "./lib/errors.js"
 import {
   connectRepo,
   disconnectRepo,
@@ -32,41 +28,39 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" })
 })
 
-app.post("/api/users/sync", syncUser)
-app.get("/api/github/repos", clerkMiddleware(), listGithubRepos)
+app.post("/api/users/sync", asyncHandler(syncUser))
+app.get("/api/github/repos", clerkMiddleware(), asyncHandler(listGithubRepos))
 app.post(
   "/api/repos/connect",
   clerkMiddleware(),
   expensiveMutationLimiter,
-  connectRepo
+  asyncHandler(connectRepo)
 )
-app.get("/api/repos/connected", clerkMiddleware(), listConnectedRepos)
-app.delete("/api/repos/:id", clerkMiddleware(), disconnectRepo)
-app.get("/api/repos/:id/prs", clerkMiddleware(), listConnectedRepoPulls)
-app.get("/api/repos/:id/reviews", clerkMiddleware(), listRepoReviews)
+app.get("/api/repos/connected", clerkMiddleware(), asyncHandler(listConnectedRepos))
+app.delete(
+  "/api/repos/:id",
+  clerkMiddleware(),
+  expensiveMutationLimiter,
+  asyncHandler(disconnectRepo)
+)
+app.get("/api/repos/:id/prs", clerkMiddleware(), asyncHandler(listConnectedRepoPulls))
+app.get("/api/repos/:id/reviews", clerkMiddleware(), asyncHandler(listRepoReviews))
 app.post(
   "/api/repos/:id/index",
   clerkMiddleware(),
   expensiveMutationLimiter,
-  (req, res, next) => {
-    req.setTimeout(15 * 60 * 1000)
-    res.setTimeout(15 * 60 * 1000)
-    Promise.resolve(indexConnectedRepo(req, res)).catch(next)
-  }
+  withTimeout(15 * 60 * 1000, indexConnectedRepo)
 )
-app.get("/api/repos/:id", clerkMiddleware(), getConnectedRepo)
+app.get("/api/repos/:id", clerkMiddleware(), asyncHandler(getConnectedRepo))
 app.post(
   "/api/prs/:prNumber/review",
   clerkMiddleware(),
   expensiveMutationLimiter,
-  (req, res, next) => {
-    req.setTimeout(10 * 60 * 1000)
-    res.setTimeout(10 * 60 * 1000)
-    Promise.resolve(reviewPullRequest(req, res)).catch(next)
-  }
+  withTimeout(10 * 60 * 1000, reviewPullRequest)
 )
 
 Sentry.setupExpressErrorHandler(app)
+app.use(apiErrorHandler)
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`Server listening on http://localhost:${port}`)

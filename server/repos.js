@@ -1,340 +1,57 @@
-import { getAuth } from "@clerk/express"
-
+import { requireCurrentUser } from "./lib/auth.js"
+import { requireIdParam, parseConnectRepoBody } from "./lib/validate.js"
 import {
-  fetchConnectedRepoGithubSummaries,
-  fetchRepoPulls,
-  fetchRepoSourceFiles,
-} from "./github.js"
-import { indexSourceFiles } from "./indexer.js"
-import { prisma } from "./db.js"
-import { captureCaughtError } from "./sentry.js"
-
-const providers = new Set(["github", "gitlab"])
-
-async function findCurrentUser(req, res) {
-  const { isAuthenticated, userId } = getAuth(req)
-
-  if (!isAuthenticated) {
-    res.status(401).json({ error: "Unauthorized" })
-    return null
-  }
-
-  try {
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    })
-
-    if (!user) {
-      res.status(404).json({ error: "User not synced" })
-      return null
-    }
-
-    return user
-  } catch (error) {
-    captureCaughtError(error, { step: "repos.findCurrentUser" })
-    res.status(503).json({
-      error: "Database unavailable. Try again in a moment.",
-    })
-    return null
-  }
-}
+  createConnectedRepo,
+  getConnectedRepoDetail,
+  indexConnectedGithubRepo,
+  listConnectedRepoPullRequests,
+  listUserConnectedRepos,
+  removeConnectedRepo,
+} from "./services/repos.js"
 
 export async function connectRepo(req, res) {
-  const user = await findCurrentUser(req, res)
-  if (!user) {
-    return
-  }
-
-  const { provider, repoName, repoUrl, externalRepoId, isPrivate } = req.body ?? {}
-
-  if (!providers.has(provider) || !repoName || !repoUrl || !externalRepoId) {
-    res.status(400).json({
-      error: "provider, repoName, repoUrl, and externalRepoId are required",
-    })
-    return
-  }
-
-  const connectedRepo = await prisma.connectedRepo.create({
-    data: {
-      userId: user.id,
-      provider,
-      repoName,
-      repoUrl,
-      externalRepoId: String(externalRepoId),
-      isPrivate: Boolean(isPrivate),
-    },
-  })
-
+  req.sentryStep = "repos.connect"
+  const user = await requireCurrentUser(req)
+  const input = parseConnectRepoBody(req.body)
+  const connectedRepo = await createConnectedRepo(user.id, input)
   res.status(201).json(connectedRepo)
 }
 
 export async function listConnectedRepos(req, res) {
-  const user = await findCurrentUser(req, res)
-  if (!user) {
-    return
-  }
-
-  const connectedRepos = await prisma.connectedRepo.findMany({
-    where: { userId: user.id },
-    orderBy: { connectedAt: "desc" },
-    include: {
-      reviews: {
-        select: { findings: true },
-      },
-    },
-  })
-
-  const githubLookups = connectedRepos.flatMap((repo) => {
-    if (repo.provider !== "github") {
-      return []
-    }
-
-    const parsed = parseOwnerRepo(repo.repoName)
-    if (!parsed) {
-      return []
-    }
-
-    return [{ id: repo.id, owner: parsed.owner, name: parsed.repo }]
-  })
-
-  const githubSummaries = await fetchConnectedRepoGithubSummaries(
-    user.clerkId,
-    githubLookups,
-    { step: "repos.listConnected" }
-  )
-
-  const summaries = connectedRepos.map((repo) => {
-    const github = githubSummaries.get(repo.id)
-
-    return {
-      id: repo.id,
-      userId: repo.userId,
-      provider: repo.provider,
-      repoName: repo.repoName,
-      repoUrl: repo.repoUrl,
-      externalRepoId: repo.externalRepoId,
-      isPrivate: github?.isPrivate ?? repo.isPrivate,
-      connectedAt: repo.connectedAt,
-      indexedAt: repo.indexedAt,
-      openPrCount: github?.openPrCount ?? null,
-      ...summarizeReviewFindings(repo.reviews),
-    }
-  })
-
+  req.sentryStep = "repos.listConnected"
+  const user = await requireCurrentUser(req)
+  const summaries = await listUserConnectedRepos(user)
   res.json(summaries)
 }
 
 export async function disconnectRepo(req, res) {
-  const user = await findCurrentUser(req, res)
-  if (!user) {
-    return
-  }
-
-  const connectedRepo = await prisma.connectedRepo.findFirst({
-    where: {
-      id: req.params.id,
-      userId: user.id,
-    },
-  })
-
-  if (!connectedRepo) {
-    res.status(404).json({ error: "Repo not found" })
-    return
-  }
-
-  await prisma.connectedRepo.delete({
-    where: { id: connectedRepo.id },
-  })
-
+  req.sentryStep = "repos.disconnect"
+  const user = await requireCurrentUser(req)
+  const repoId = requireIdParam(req.params.id)
+  await removeConnectedRepo(user.id, repoId)
   res.status(204).end()
 }
 
-function summarizeReviewFindings(reviews) {
-  const rank = { high: 3, medium: 2, low: 1 }
-  let findingCount = 0
-  let highestSeverity = null
-
-  for (const review of reviews) {
-    const items = Array.isArray(review.findings) ? review.findings : []
-    findingCount += items.length
-
-    for (const item of items) {
-      const nextRank = rank[item.severity] ?? 0
-      const currentRank = rank[highestSeverity] ?? 0
-      if (nextRank > currentRank) {
-        highestSeverity = item.severity
-      }
-    }
-  }
-
-  return {
-    hasReviews: reviews.length > 0,
-    findingCount,
-    highestSeverity,
-  }
-}
-
 export async function getConnectedRepo(req, res) {
-  const user = await findCurrentUser(req, res)
-  if (!user) {
-    return
-  }
-
-  const connectedRepo = await prisma.connectedRepo.findFirst({
-    where: {
-      id: req.params.id,
-      userId: user.id,
-    },
-  })
-
-  if (!connectedRepo) {
-    res.status(404).json({ error: "Repo not found" })
-    return
-  }
-
-  const reviews = await prisma.review.findMany({
-    where: { connectedRepoId: connectedRepo.id },
-    orderBy: { createdAt: "desc" },
-    select: { createdAt: true, findings: true },
-  })
-  const securityIssueCount = reviews.reduce((count, review) => {
-    const items = Array.isArray(review.findings) ? review.findings : []
-    return count + items.filter((item) => item.severity === "high").length
-  }, 0)
-
-  res.json({
-    ...connectedRepo,
-    prCount: 0,
-    securityIssueCount,
-    lastReviewedAt: reviews[0]?.createdAt ?? null,
-  })
+  req.sentryStep = "repos.getConnected"
+  const user = await requireCurrentUser(req)
+  const repoId = requireIdParam(req.params.id)
+  const repo = await getConnectedRepoDetail(user.id, repoId)
+  res.json(repo)
 }
 
 export async function listConnectedRepoPulls(req, res) {
-  const user = await findCurrentUser(req, res)
-  if (!user) {
-    return
-  }
-
-  const connectedRepo = await prisma.connectedRepo.findFirst({
-    where: {
-      id: req.params.id,
-      userId: user.id,
-    },
-  })
-
-  if (!connectedRepo) {
-    res.status(404).json({ error: "Repo not found" })
-    return
-  }
-
-  if (connectedRepo.provider !== "github") {
-    res.status(400).json({ error: "Pull requests are only available for GitHub repos" })
-    return
-  }
-
-  const [owner, ...repoParts] = connectedRepo.repoName.split("/")
-  const repo = repoParts.join("/")
-
-  if (!owner || !repo) {
-    res.status(400).json({ error: "Invalid repo name" })
-    return
-  }
-
-  try {
-    const pulls = await fetchRepoPulls(user.clerkId, owner, repo, {
-      repoId: connectedRepo.id,
-    })
-
-    if (!pulls) {
-      res.status(401).json({ error: "GitHub OAuth access token not found" })
-      return
-    }
-
-    res.json(pulls)
-  } catch (error) {
-    captureCaughtError(error, {
-      repoId: connectedRepo.id,
-      step: "github.listPulls",
-    })
-    res.status(502).json({ error: "Failed to load pull requests from GitHub" })
-  }
-}
-
-function parseOwnerRepo(repoName) {
-  const [owner, ...repoParts] = repoName.split("/")
-  const repo = repoParts.join("/")
-  return owner && repo ? { owner, repo } : null
+  req.sentryStep = "github.listPulls"
+  const user = await requireCurrentUser(req)
+  const repoId = requireIdParam(req.params.id)
+  const pulls = await listConnectedRepoPullRequests(user, repoId)
+  res.json(pulls)
 }
 
 export async function indexConnectedRepo(req, res) {
-  const user = await findCurrentUser(req, res)
-  if (!user) {
-    return
-  }
-
-  const connectedRepo = await prisma.connectedRepo.findFirst({
-    where: {
-      id: req.params.id,
-      userId: user.id,
-    },
-  })
-
-  if (!connectedRepo) {
-    res.status(404).json({ error: "Repo not found" })
-    return
-  }
-
-  if (connectedRepo.provider !== "github") {
-    res.status(400).json({ error: "Indexing is only available for GitHub repos" })
-    return
-  }
-
-  const parsed = parseOwnerRepo(connectedRepo.repoName)
-  if (!parsed) {
-    res.status(400).json({ error: "Invalid repo name" })
-    return
-  }
-
-  try {
-    const files = await fetchRepoSourceFiles(
-      user.clerkId,
-      parsed.owner,
-      parsed.repo,
-      { repoId: connectedRepo.id }
-    )
-
-    if (!files) {
-      res.status(401).json({ error: "GitHub OAuth access token not found" })
-      return
-    }
-
-    const { fileCount, chunkCount } = await indexSourceFiles(
-      connectedRepo.id,
-      files
-    )
-    const indexedRepo = await prisma.connectedRepo.update({
-      where: { id: connectedRepo.id },
-      data: { indexedAt: new Date() },
-    })
-
-    res.json({
-      ...indexedRepo,
-      fileCount,
-      chunkCount,
-    })
-  } catch (error) {
-    captureCaughtError(error, {
-      repoId: connectedRepo.id,
-      step: "github.indexRepo",
-    })
-
-    if (error.code === "CHROMA_UNAVAILABLE") {
-      res.status(503).json({ error: error.message })
-      return
-    }
-
-    console.error(error)
-    res.status(502).json({ error: "Failed to index repository" })
-  }
+  req.sentryStep = "github.indexRepo"
+  const user = await requireCurrentUser(req)
+  const repoId = requireIdParam(req.params.id)
+  const result = await indexConnectedGithubRepo(user, repoId)
+  res.json(result)
 }

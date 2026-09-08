@@ -4,6 +4,8 @@ import { Chroma } from "@langchain/community/vectorstores/chroma"
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters"
 import { ChromaClient } from "chromadb"
 
+import { captureCaughtError } from "./sentry.js"
+
 const chromaUrl = process.env.CHROMA_URL || "http://localhost:8000"
 
 function collectionNameForRepo(repoId) {
@@ -35,7 +37,8 @@ export async function searchRepoIndex(repoId, query, k = 6) {
 
   try {
     await client.heartbeat()
-  } catch {
+  } catch (error) {
+    captureCaughtError(error, { repoId, step: "chroma.heartbeat" })
     return []
   }
 
@@ -49,7 +52,8 @@ export async function searchRepoIndex(repoId, query, k = 6) {
     const vector = await embeddings.embedQuery(query.slice(0, 4000))
     const results = await store.similaritySearchVectorWithScore(vector, k)
     return results.map(([document]) => document)
-  } catch {
+  } catch (error) {
+    captureCaughtError(error, { repoId, step: "chroma.search" })
     return []
   }
 }
@@ -77,12 +81,13 @@ export async function indexSourceFiles(repoId, files) {
 
   try {
     await client.heartbeat()
-  } catch {
-    const error = new Error(
+  } catch (error) {
+    captureCaughtError(error, { repoId, step: "chroma.heartbeat" })
+    const unavailable = new Error(
       "Chroma is not running. Start it with npm run chroma."
     )
-    error.code = "CHROMA_UNAVAILABLE"
-    throw error
+    unavailable.code = "CHROMA_UNAVAILABLE"
+    throw unavailable
   }
 
   const collectionName = collectionNameForRepo(repoId)

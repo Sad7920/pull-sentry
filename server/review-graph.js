@@ -46,10 +46,10 @@ function getModel() {
 }
 
 function getGeminiModel() {
-  const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
 
   if (!apiKey) {
-    const error = new Error("GOOGLE_API_KEY is not set")
+    const error = new Error("GEMINI_API_KEY is not set")
     error.code = "GEMINI_UNAVAILABLE"
     throw error
   }
@@ -150,18 +150,26 @@ function providerError(provider, code, error) {
   return wrapped
 }
 
-async function askForFindings(prompt) {
+async function invokeJsonFindings(createModel, prompt, { unavailableCode, errorCode, provider }) {
   try {
-    const model = getModel()
+    const model = createModel()
     const response = await model.invoke(prompt)
     return parseJsonArray(messageText(response.content))
   } catch (error) {
-    if (error.code === "GROQ_UNAVAILABLE") {
+    if (error.code === unavailableCode) {
       throw error
     }
 
-    throw providerError("Groq", "GROQ_ERROR", error)
+    throw providerError(provider, errorCode, error)
   }
+}
+
+async function askForFindings(prompt) {
+  return invokeJsonFindings(getModel, prompt, {
+    unavailableCode: "GROQ_UNAVAILABLE",
+    errorCode: "GROQ_ERROR",
+    provider: "Groq",
+  })
 }
 
 function withReviewStep(step, node) {
@@ -169,6 +177,7 @@ function withReviewStep(step, node) {
     Sentry.setTags({
       repoId: String(state.repoId ?? ""),
       prNumber: String(state.prNumber ?? ""),
+      userId: String(state.clerkUserId ?? ""),
       step,
     })
 
@@ -186,6 +195,7 @@ function withReviewStep(step, node) {
       )
     } catch (error) {
       captureCaughtError(error, {
+        userId: state.clerkUserId,
         repoId: state.repoId,
         prNumber: state.prNumber,
         step,
@@ -285,10 +295,9 @@ ${JSON.stringify(state.styleFindings)}`
 }
 
 async function sanityCheckNode(state) {
-  try {
-    const model = getGeminiModel()
-    const response = await model.invoke(
-      `You are a second-pass reviewer. Sanity-check the synthesized findings against the original pull request diff.
+  const items = await invokeJsonFindings(
+    getGeminiModel,
+    `You are a second-pass reviewer. Sanity-check the synthesized findings against the original pull request diff.
 Drop false positives. Add any obvious missed issues. Assign a confidence score from 0 to 1 for each finding.
 
 Return a JSON array only. Each item: {"severity":"high"|"medium"|"low","file":string|null,"line":number|null,"description":string,"confidence":number}.
@@ -298,25 +307,20 @@ Synthesized findings:
 ${JSON.stringify(state.findings)}
 
 Diff:
-${state.diff}`
-    )
-
-    const checked = normalizeFindings(
-      parseJsonArray(messageText(response.content)),
-      "review"
-    ).sort(
-      (left, right) =>
-        (severityRank[left.severity] ?? 1) - (severityRank[right.severity] ?? 1)
-    )
-
-    return { findings: checked }
-  } catch (error) {
-    if (error.code === "GEMINI_UNAVAILABLE") {
-      throw error
+${state.diff}`,
+    {
+      unavailableCode: "GEMINI_UNAVAILABLE",
+      errorCode: "GEMINI_ERROR",
+      provider: "Gemini",
     }
+  )
 
-    throw providerError("Gemini", "GEMINI_ERROR", error)
-  }
+  const checked = normalizeFindings(items, "review").sort(
+    (left, right) =>
+      (severityRank[left.severity] ?? 1) - (severityRank[right.severity] ?? 1)
+  )
+
+  return { findings: checked }
 }
 
 const reviewGraph = new StateGraph(ReviewState)
@@ -354,6 +358,7 @@ export async function runPrReview({
         repoId: String(repoId),
         prNumber: String(prNumber),
         step: "review",
+        userId: String(clerkUserId),
       })
 
       const result = await reviewGraph.invoke({
