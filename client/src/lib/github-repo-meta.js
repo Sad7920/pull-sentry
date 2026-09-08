@@ -46,7 +46,7 @@ export function formatStarCount(count) {
   return value.toLocaleString()
 }
 
-export function formatUpdatedAgo(isoDate) {
+export function formatTimeAgo(isoDate) {
   const then = Date.parse(isoDate)
   if (!Number.isFinite(then)) {
     return null
@@ -55,29 +55,55 @@ export function formatUpdatedAgo(isoDate) {
   const seconds = Math.max(0, Math.round((Date.now() - then) / 1000))
 
   if (seconds < 45) {
-    return "Updated just now"
+    return "just now"
   }
 
   const minutes = Math.round(seconds / 60)
   if (minutes < 60) {
-    return `Updated ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`
+    return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`
   }
 
   const hours = Math.round(minutes / 60)
   if (hours < 24) {
-    return `Updated ${hours} ${hours === 1 ? "hour" : "hours"} ago`
+    return `${hours} ${hours === 1 ? "hour" : "hours"} ago`
   }
 
   const days = Math.round(hours / 24)
   if (days < 30) {
-    return `Updated ${days} ${days === 1 ? "day" : "days"} ago`
+    return `${days} ${days === 1 ? "day" : "days"} ago`
   }
 
   const months = Math.round(days / 30)
   if (months < 12) {
-    return `Updated ${months} ${months === 1 ? "month" : "months"} ago`
+    return `${months} ${months === 1 ? "month" : "months"} ago`
   }
 
   const years = Math.round(days / 365)
-  return `Updated ${years} ${years === 1 ? "year" : "years"} ago`
+  return `${years} ${years === 1 ? "year" : "years"} ago`
+}
+
+export function formatUpdatedAgo(isoDate) {
+  const ago = formatTimeAgo(isoDate)
+  if (!ago) {
+    return null
+  }
+
+  if (ago === "just now") {
+    return "Updated just now"
+  }
+
+  return `Updated ${ago}`
+}
+
+export function formatIndexedAgo(isoDate) {
+  const ago = formatTimeAgo(isoDate)
+  if (!ago) {
+    return null
+  }
+
+  if (ago === "just now") {
+    return "Indexed just now"
+  }
+
+  return `Indexed ${ago}`
 }

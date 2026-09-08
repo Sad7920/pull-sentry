@@ -5,6 +5,8 @@ import {
   ArrowLeftIcon,
   CalendarIcon,
   CheckCircleIcon,
+  CircleAlertIcon,
+  DatabaseIcon,
   FileIcon,
   GaugeIcon,
   GitPullRequestIcon,
@@ -56,6 +58,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { formatIndexedAgo } from "@/lib/github-repo-meta"
 import { cn } from "@/lib/utils"
 
 function RepoEmptyState({ title = "No data yet" }) {
@@ -829,21 +832,35 @@ function SettingsTab({ repo, onIndexed }) {
     }
   }
 
+  const hasIndex = Boolean(repo.indexedAt)
+  const indexedLabel = hasIndex ? formatIndexedAgo(repo.indexedAt) : null
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Repository index</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <DatabaseIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+          Repository index
+        </CardTitle>
         <CardDescription>
-          Embed source files locally and store vectors in Chroma. Run this once
-          per repo when you are ready.
+          PullSentry reads your repo&apos;s code so review feedback is grounded
+          in your actual codebase — catching things like duplicated logic or
+          broken conventions, not just issues visible in the diff alone. Index
+          once, then re-index anytime your code changes significantly.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col items-start gap-3">
-        {repo.indexedAt ? (
-          <p className="text-muted-foreground">
-            Indexed {formatDate(repo.indexedAt)}
+        {hasIndex ? (
+          <p className="flex items-center gap-1.5 text-sm text-emerald-700">
+            <CheckCircleIcon aria-hidden="true" className="size-4" />
+            {indexedLabel ?? "Indexed"}
           </p>
-        ) : null}
+        ) : (
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <CircleAlertIcon aria-hidden="true" className="size-4 text-amber-500" />
+            Not indexed yet
+          </p>
+        )}
         {error ? (
           <Alert variant="destructive">
             <AlertCircleIcon />
@@ -857,8 +874,13 @@ function SettingsTab({ repo, onIndexed }) {
         ) : null}
         <Button disabled={indexing} onClick={handleIndex}>
           {indexing ? <Spinner data-icon="inline-start" /> : null}
-          {indexing ? "Indexing..." : "Index Repo"}
+          {indexing ? "Indexing..." : hasIndex ? "Re-index Repo" : "Index Repo"}
         </Button>
+        {hasIndex ? (
+          <p className="text-xs text-muted-foreground">
+            Re-indexing replaces the previous index for this repo.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -953,8 +975,14 @@ export function RepoDetailPage() {
           <TabsTrigger className="flex-none" value="security">
             Security
           </TabsTrigger>
-          <TabsTrigger className="flex-none" value="settings">
+          <TabsTrigger className="relative flex-none pr-3" value="settings">
             Settings
+            {!repo.indexedAt ? (
+              <span
+                aria-label="Repository not indexed"
+                className="absolute top-0.5 right-1 size-1.5 rounded-full bg-amber-500"
+              />
+            ) : null}
           </TabsTrigger>
         </TabsList>
         <TabsContent className="min-w-0" value="pull-requests">
