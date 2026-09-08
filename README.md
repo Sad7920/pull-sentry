@@ -223,6 +223,13 @@ Not implemented today, and not implied by the current UI:
 - User-facing dark mode
 - Client-side Sentry
 
+### Production hardening
+
+- [ ] **Eval harness** — Golden dataset of labeled PRs (known correct/incorrect findings) run through the LangGraph pipeline (including Chroma-retrieved context) on every prompt or Groq/Gemini model change, tracking precision, recall, and false-positive rate over time.
+- [ ] **Cost tracking & budget guardrails** — Per-request token usage and cost logged by model (Groq vs Gemini), a summary view, and a circuit breaker that falls back to a cheaper model or rejects reviews that exceed a cost threshold.
+- [ ] **Prompt/output testing in CI** — A suite (promptfoo or a custom harness) asserting on JSON structure and content from the security, style, and synthesis Groq nodes, wired into CI so prompt changes cannot merge if they break existing cases.
+- [ ] **Reliability improvements** — Exponential backoff and retry for Groq/Gemini timeouts and rate limits, plus routing low-confidence Gemini judge findings to a human-review queue instead of auto-persisting them; failures stay visible in the existing Sentry review spans.
+
 ## License
 
 This project is licensed under the [MIT License](./LICENSE).
