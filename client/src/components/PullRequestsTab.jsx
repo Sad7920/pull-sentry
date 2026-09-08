@@ -22,6 +22,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { authedFetch } from "@/lib/api"
 import {
   toastApiError,
@@ -95,18 +100,28 @@ function PullRequestReviewButton({
   }
 
   return (
-    <span
-      className={cn("inline-flex", className)}
-      onClick={(event) => {
-        event.stopPropagation()
-        toastError(
-          "No review credits",
-          "Reviews are paused until credits are restored."
-        )
-      }}
-    >
-      {button}
-    </span>
+    <Tooltip delay={0}>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn("inline-flex", className)}
+            onClick={(event) => {
+              event.stopPropagation()
+              toastError(
+                "No review credits",
+                "Reviews are paused until credits are restored."
+              )
+            }}
+          />
+        }
+      >
+        {button}
+      </TooltipTrigger>
+      <TooltipContent>
+        You&apos;re out of review credits. Reviews are paused until credits are
+        restored.
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

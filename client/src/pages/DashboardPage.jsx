@@ -1,6 +1,10 @@
-import { useAuth, useUser } from "@clerk/react"
+import {
+  isClerkAPIResponseError,
+  isReverificationCancelledError,
+} from "@clerk/react/errors"
+import { useAuth, useReverification, useUser } from "@clerk/react"
 import { EllipsisVerticalIcon, FolderGit2Icon, PlusIcon, StarIcon } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
 import { PageEmptyState } from "@/components/PageEmptyState"
@@ -36,9 +40,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { EmptyContent } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 import { authedFetch } from "@/lib/api"
-import { toastApiError, toastSuccess } from "@/lib/app-toast"
+import { toastApiError, toastError, toastSuccess } from "@/lib/app-toast"
 import {
   formatShortDate,
   formatStarCount,
@@ -65,6 +70,28 @@ function LanguageDot({ language }) {
 
 function stopCardNavigation(event) {
   event.stopPropagation()
+}
+
+function clerkErrorMessage(error, fallback) {
+  if (isReverificationCancelledError(error)) {
+    return "GitHub linking was cancelled."
+  }
+  if (isClerkAPIResponseError(error)) {
+    return error.errors[0]?.longMessage || error.errors[0]?.message || fallback
+  }
+  return error?.message || fallback
+}
+
+function hasVerifiedGithub(user) {
+  return user.externalAccounts.some(
+    (account) =>
+      account.provider === "github" &&
+      (!account.verification || account.verification.status === "verified")
+  )
+}
+
+function githubLinkRedirectUrl() {
+  return `${window.location.origin}/dashboard`
 }
 
 function openPrLabel(count) {
@@ -229,10 +256,17 @@ export function DashboardPage() {
   const [availableError, setAvailableError] = useState(null)
   const [disconnectRepo, setDisconnectRepo] = useState(null)
   const [disconnecting, setDisconnecting] = useState(false)
+  const [linkingGithub, setLinkingGithub] = useState(false)
+  const githubLinkErrorKeyRef = useRef(null)
 
-  const signedInWithGithub = user.externalAccounts.some(
-    (account) => account.provider === "github"
+  const createExternalAccount = useReverification((params) =>
+    user.createExternalAccount(params)
   )
+  const reauthorizeGithub = useReverification((account, params) =>
+    account.reauthorize(params)
+  )
+
+  const signedInWithGithub = hasVerifiedGithub(user)
   const hasConnectedRepos = connectedRepos.length > 0
   const showBrowseList =
     signedInWithGithub && (!hasConnectedRepos || browsingMore)
@@ -258,6 +292,63 @@ export function DashboardPage() {
 
     refreshConnectedRepos()
   }, [isSynced, refreshConnectedRepos])
+
+  useEffect(() => {
+    const github = user.externalAccounts.find(
+      (account) => account.provider === "github"
+    )
+    if (!github || github.verification?.status === "verified") {
+      githubLinkErrorKeyRef.current = null
+      return
+    }
+
+    const key = `${github.id}:${github.verification?.error?.code ?? github.verification?.status ?? "unverified"}`
+    if (githubLinkErrorKeyRef.current === key) {
+      return
+    }
+    githubLinkErrorKeyRef.current = key
+    toastError(
+      "Could not connect GitHub",
+      github.verification?.error?.longMessage ||
+        github.verification?.error?.message ||
+        "GitHub linking was cancelled or did not complete."
+    )
+  }, [user])
+
+  async function handleConnectGithub() {
+    setLinkingGithub(true)
+    try {
+      const redirectUrl = githubLinkRedirectUrl()
+      const existingGithub = user.externalAccounts.find(
+        (account) => account.provider === "github"
+      )
+      const account =
+        existingGithub && existingGithub.verification?.status !== "verified"
+          ? await reauthorizeGithub(existingGithub, { redirectUrl })
+          : await createExternalAccount({
+              strategy: "oauth_github",
+              redirectUrl,
+            })
+
+      const oauthUrl = account?.verification?.externalVerificationRedirectURL
+      if (oauthUrl) {
+        window.location.assign(oauthUrl.href)
+        return
+      }
+
+      const reloaded = await user.reload()
+      if (!hasVerifiedGithub(reloaded ?? user)) {
+        throw new Error("GitHub linking did not complete.")
+      }
+      setLinkingGithub(false)
+    } catch (error) {
+      toastError(
+        "Could not connect GitHub",
+        clerkErrorMessage(error, "GitHub linking was cancelled or failed.")
+      )
+      setLinkingGithub(false)
+    }
+  }
 
   useEffect(() => {
     if (!showBrowseList) {
@@ -421,7 +512,14 @@ export function DashboardPage() {
           icon="repo"
           title="No repositories connected"
           description="Add GitHub to your account, then connect a repo to start reviewing pull requests."
-        />
+        >
+          <EmptyContent>
+            <Button disabled={linkingGithub} onClick={handleConnectGithub}>
+              {linkingGithub ? <Spinner data-icon="inline-start" /> : null}
+              {linkingGithub ? "Connecting..." : "Connect GitHub"}
+            </Button>
+          </EmptyContent>
+        </PageEmptyState>
       ) : null}
 
       <AlertDialog
