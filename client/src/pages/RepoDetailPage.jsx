@@ -28,7 +28,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -45,11 +44,6 @@ import {
 } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import {
   Table,
   TableBody,
   TableCell,
@@ -59,6 +53,12 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatIndexedAgo } from "@/lib/github-repo-meta"
+import {
+  toastApiError,
+  toastError,
+  toastSuccess,
+  toastWarning,
+} from "@/lib/app-toast"
 import { cn } from "@/lib/utils"
 
 function RepoEmptyState({ title = "No data yet" }) {
@@ -275,7 +275,7 @@ function ReviewFindings({ findings, showPr = false }) {
   )
 }
 
-function SecurityFindings({ findings, openPrNumber }) {
+function SecurityFindings({ findings, openTarget }) {
   const pullRequests = []
   const groups = new Map()
 
@@ -311,16 +311,19 @@ function SecurityFindings({ findings, openPrNumber }) {
   )
 
   const [openItems, setOpenItems] = useState(() =>
-    openPrNumber != null ? [String(openPrNumber)] : []
+    openTarget?.prNumber != null ? [String(openTarget.prNumber)] : []
   )
 
   useEffect(() => {
-    if (openPrNumber == null) {
+    if (openTarget?.prNumber == null) {
       return
     }
 
-    const id = String(openPrNumber)
-    setOpenItems((current) => (current.includes(id) ? current : [id, ...current]))
+    const id = String(openTarget.prNumber)
+    setOpenItems((current) => [
+      id,
+      ...current.filter((item) => item !== id),
+    ])
 
     const frame = window.requestAnimationFrame(() => {
       document
@@ -329,7 +332,7 @@ function SecurityFindings({ findings, openPrNumber }) {
     })
 
     return () => window.cancelAnimationFrame(frame)
-  }, [openPrNumber])
+  }, [openTarget])
 
   return (
     <Accordion
@@ -431,15 +434,19 @@ function PullRequestReviewButton({
     )
   }
 
-  const disabled = outOfCredits || reviewingNumber !== null
+  const disabled = reviewingNumber !== null
   const button = (
     <Button
       size="sm"
       className={outOfCredits ? undefined : className}
-      disabled={disabled}
+      disabled={disabled || outOfCredits}
       onClick={(event) => {
         event.stopPropagation()
         if (outOfCredits) {
+          toastError(
+            "No review credits",
+            "Reviews are paused until credits are restored."
+          )
           return
         }
         onReview()
@@ -455,20 +462,18 @@ function PullRequestReviewButton({
   }
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        nativeButton={false}
-        className={className}
-        render={<span className="inline-flex" />}
-        onClick={(event) => event.stopPropagation()}
-      >
-        {button}
-      </TooltipTrigger>
-      <TooltipContent>
-        You&apos;re out of review credits. Reviews are paused until credits are
-        restored.
-      </TooltipContent>
-    </Tooltip>
+    <span
+      className={cn("inline-flex", className)}
+      onClick={(event) => {
+        event.stopPropagation()
+        toastError(
+          "No review credits",
+          "Reviews are paused until credits are restored."
+        )
+      }}
+    >
+      {button}
+    </span>
   )
 }
 
@@ -476,7 +481,6 @@ function PullRequestReviewBlock({
   isReviewing,
   reviewingNumber,
   review,
-  reviewError,
   onReview,
   showButton = true,
   outOfCredits = false,
@@ -495,22 +499,7 @@ function PullRequestReviewBlock({
           onViewFindings={onViewFindings}
         />
       ) : null}
-      {isReviewing && !review ? <ReviewFindingsSkeleton /> : null}
-      {reviewError ? (
-        <Alert variant="destructive">
-          <AlertCircleIcon />
-          <AlertTitle>
-            {/too many requests/i.test(reviewError)
-              ? "Too many requests"
-              : /review credits/i.test(reviewError)
-                ? "No review credits"
-                : /saving it timed out|try again/i.test(reviewError)
-                  ? "Couldn't save the review"
-                  : "Review failed"}
-          </AlertTitle>
-          <AlertDescription>{reviewError}</AlertDescription>
-        </Alert>
-      ) : null}
+      
       {review && !hasFindings ? (
         <ReviewFindings
           findings={Array.isArray(review.findings) ? review.findings : []}
@@ -520,7 +509,7 @@ function PullRequestReviewBlock({
   )
 }
 
-function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
+function PullRequestsTab({ repoId, indexed, onReviewed, onViewFindings }) {
   const { getToken } = useAuth()
   const { reviewCredits, setReviewCredits } = useReviewCredits()
   const outOfCredits = reviewCredits === 0
@@ -529,14 +518,24 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
   const [reviews, setReviews] = useState({})
   const [reviewedPrs, setReviewedPrs] = useState(() => new Set())
   const [reviewingNumber, setReviewingNumber] = useState(null)
-  const [reviewErrors, setReviewErrors] = useState({})
 
   async function handleReview(prNumber) {
     if (outOfCredits) {
+      toastError(
+        "No review credits",
+        "Reviews are paused until credits are restored."
+      )
       return
     }
+
+    if (!indexed) {
+      toastWarning(
+        "Repo not indexed",
+        "Index the repo in Settings so reviews can use your full codebase."
+      )
+    }
+
     setReviewingNumber(prNumber)
-    setReviewErrors((current) => ({ ...current, [prNumber]: null }))
 
     try {
       const token = await getToken()
@@ -548,9 +547,11 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
         },
         body: JSON.stringify({ repoId }),
       })
-      const data = await response.json()
+      const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(data.error ?? "Review failed")
+        const error = new Error(data.error ?? "Review failed")
+        error.status = response.status
+        throw error
       }
       if (typeof data.reviewCredits === "number") {
         setReviewCredits(data.reviewCredits)
@@ -561,12 +562,16 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
         next.add(prNumber)
         return next
       })
+      const findingCount = Array.isArray(data.findings) ? data.findings.length : 0
+      toastSuccess(
+        "Review complete",
+        findingCount === 1
+          ? `1 issue flagged in PR #${prNumber}`
+          : `${findingCount} issues flagged in PR #${prNumber}`
+      )
       onReviewed?.()
     } catch (err) {
-      setReviewErrors((current) => ({
-        ...current,
-        [prNumber]: err.message,
-      }))
+      toastApiError(err, "Review failed")
     } finally {
       setReviewingNumber(null)
     }
@@ -587,9 +592,11 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
         ])
       )
       .then(async ([prsResponse, reviewsResponse]) => {
-        const prsData = await prsResponse.json()
+        const prsData = await prsResponse.json().catch(() => ({}))
         if (!prsResponse.ok) {
-          throw new Error(prsData.error ?? "Failed to load pull requests")
+          const error = new Error(prsData.error ?? "Failed to load pull requests")
+          error.status = prsResponse.status
+          throw error
         }
 
         let reviewed = new Set()
@@ -615,6 +622,7 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
       })
       .catch((err) => {
         if (!cancelled) {
+          toastApiError(err, "Could not load pull requests")
           setError(err.message)
         }
       })
@@ -629,7 +637,7 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
   }
 
   if (error) {
-    return <RepoEmptyState title={error} />
+    return <RepoEmptyState title="No pull requests" />
   }
 
   if (pulls.length === 0) {
@@ -642,7 +650,6 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
         {pulls.map((pull) => {
           const isReviewing = reviewingNumber === pull.number
           const review = reviews[pull.number]
-          const reviewError = reviewErrors[pull.number]
           const hasFindings =
             reviewedPrs.has(pull.number) || Boolean(review)
 
@@ -682,7 +689,6 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
                   isReviewing={isReviewing}
                   reviewingNumber={reviewingNumber}
                   review={review}
-                  reviewError={reviewError}
                   outOfCredits={outOfCredits}
                   hasFindings={hasFindings}
                   onViewFindings={() => onViewFindings?.(pull.number)}
@@ -710,7 +716,6 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
             {pulls.map((pull) => {
               const isReviewing = reviewingNumber === pull.number
               const review = reviews[pull.number]
-              const reviewError = reviewErrors[pull.number]
               const hasFindings =
                 reviewedPrs.has(pull.number) || Boolean(review)
 
@@ -730,7 +735,6 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
                       isReviewing={isReviewing}
                       reviewingNumber={reviewingNumber}
                       review={review}
-                      reviewError={reviewError}
                       outOfCredits={outOfCredits}
                       hasFindings={hasFindings}
                       onViewFindings={() => onViewFindings?.(pull.number)}
@@ -747,7 +751,7 @@ function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
   )
 }
 
-function SecurityTab({ repoId, refreshKey, openPrNumber }) {
+function SecurityTab({ repoId, securityRefreshKey, openTarget }) {
   const { getToken } = useAuth()
   const [findings, setFindings] = useState(null)
   const [error, setError] = useState(null)
@@ -762,9 +766,11 @@ function SecurityTab({ repoId, refreshKey, openPrNumber }) {
         })
       )
       .then(async (response) => {
-        const data = await response.json()
+        const data = await response.json().catch(() => ({}))
         if (!response.ok) {
-          throw new Error(data.error ?? "Failed to load security findings")
+          const error = new Error(data.error ?? "Failed to load security findings")
+          error.status = response.status
+          throw error
         }
         return data
       })
@@ -775,6 +781,7 @@ function SecurityTab({ repoId, refreshKey, openPrNumber }) {
       })
       .catch((err) => {
         if (!cancelled) {
+          toastApiError(err, "Could not load security findings")
           setError(err.message)
         }
       })
@@ -782,37 +789,30 @@ function SecurityTab({ repoId, refreshKey, openPrNumber }) {
     return () => {
       cancelled = true
     }
-  }, [getToken, repoId, refreshKey])
+  }, [getToken, repoId, securityRefreshKey])
 
   if (!findings && !error) {
     return <SecurityFindingsSkeleton />
   }
 
   if (error) {
-    return (
-      <Alert variant="destructive">
-        <AlertCircleIcon />
-        <AlertTitle>Could not load security findings</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    )
+    return <RepoEmptyState title="No review findings yet" />
   }
 
   if (findings.length === 0) {
     return <RepoEmptyState title="No review findings yet" />
   }
 
-  return <SecurityFindings findings={findings} openPrNumber={openPrNumber} />
+  return <SecurityFindings findings={findings} openTarget={openTarget} />
 }
 
-function SettingsTab({ repo, onIndexed }) {
+function SettingsTab({ repo, settingsRefreshKey, onIndexed }) {
   const { getToken } = useAuth()
   const [indexing, setIndexing] = useState(false)
-  const [error, setError] = useState(null)
 
   async function handleIndex() {
+    const wasIndexed = Boolean(repo.indexedAt)
     setIndexing(true)
-    setError(null)
 
     try {
       const token = await getToken()
@@ -820,13 +820,19 @@ function SettingsTab({ repo, onIndexed }) {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       })
-      const data = await response.json()
+      const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(data.error ?? "Indexing failed")
+        const error = new Error(data.error ?? "Indexing failed")
+        error.status = response.status
+        throw error
       }
       onIndexed(data)
+      toastSuccess(
+        wasIndexed ? "Repository re-indexed" : "Repository indexed",
+        repo.repoName
+      )
     } catch (err) {
-      setError(err.message)
+      toastApiError(err, "Indexing failed")
     } finally {
       setIndexing(false)
     }
@@ -861,17 +867,6 @@ function SettingsTab({ repo, onIndexed }) {
             Not indexed yet
           </p>
         )}
-        {error ? (
-          <Alert variant="destructive">
-            <AlertCircleIcon />
-            <AlertTitle>
-              {/too many requests/i.test(error)
-                ? "Too many requests"
-                : "Indexing failed"}
-            </AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
         <Button disabled={indexing} onClick={handleIndex}>
           {indexing ? <Spinner data-icon="inline-start" /> : null}
           {indexing ? "Indexing..." : hasIndex ? "Re-index Repo" : "Index Repo"}
@@ -892,7 +887,8 @@ export function RepoDetailPage() {
   const navigate = useNavigate()
   const [repo, setRepo] = useState(null)
   const [error, setError] = useState(null)
-  const [reviewsVersion, setReviewsVersion] = useState(0)
+  const [securityRefreshKey, setSecurityRefreshKey] = useState(0)
+  const [settingsRefreshKey, setSettingsRefreshKey] = useState(0)
   const [tab, setTab] = useState("pull-requests")
   const [openFindingPr, setOpenFindingPr] = useState(null)
 
@@ -906,9 +902,11 @@ export function RepoDetailPage() {
         })
       )
       .then(async (response) => {
-        const data = await response.json()
+        const data = await response.json().catch(() => ({}))
         if (!response.ok) {
-          throw new Error(data.error ?? "Repo not found")
+          const error = new Error(data.error ?? "Repo not found")
+          error.status = response.status
+          throw error
         }
         return data
       })
@@ -919,6 +917,7 @@ export function RepoDetailPage() {
       })
       .catch((err) => {
         if (!cancelled) {
+          toastApiError(err, "Could not load repository")
           setError(err.message)
         }
       })
@@ -985,27 +984,34 @@ export function RepoDetailPage() {
             ) : null}
           </TabsTrigger>
         </TabsList>
-        <TabsContent className="min-w-0" value="pull-requests">
+        <TabsContent className="min-w-0" value="pull-requests" keepMounted>
           <PullRequestsTab
             repoId={id}
-            onReviewed={() => setReviewsVersion((current) => current + 1)}
+            indexed={Boolean(repo.indexedAt)}
+            onReviewed={() =>
+              setSecurityRefreshKey((current) => current + 1)
+            }
             onViewFindings={(prNumber) => {
-              setOpenFindingPr(prNumber)
+              setOpenFindingPr({ prNumber, timestamp: Date.now() })
               setTab("security")
             }}
           />
         </TabsContent>
-        <TabsContent value="security">
+        <TabsContent value="security" keepMounted>
           <SecurityTab
             repoId={id}
-            refreshKey={reviewsVersion}
-            openPrNumber={openFindingPr}
+            securityRefreshKey={securityRefreshKey}
+            openTarget={openFindingPr}
           />
         </TabsContent>
-        <TabsContent value="settings">
+        <TabsContent value="settings" keepMounted>
           <SettingsTab
             repo={repo}
-            onIndexed={(indexed) => setRepo((current) => ({ ...current, ...indexed }))}
+            settingsRefreshKey={settingsRefreshKey}
+            onIndexed={(indexed) => {
+              setRepo((current) => ({ ...current, ...indexed }))
+              setSettingsRefreshKey((current) => current + 1)
+            }}
           />
         </TabsContent>
       </Tabs>
