@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom"
 
 import { CookieConsent } from "@/components/CookieConsent"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
+import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { DashboardPage } from "@/pages/DashboardPage"
 import { LoginPage } from "@/pages/LoginPage"
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       <CookieConsent />
+      <Toaster />
     </TooltipProvider>
   )
 }

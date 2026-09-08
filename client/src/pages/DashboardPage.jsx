@@ -1,5 +1,5 @@
 import { useAuth, useUser } from "@clerk/react"
-import { AlertCircleIcon, EllipsisVerticalIcon, FolderGit2Icon, PlusIcon, StarIcon } from "lucide-react"
+import { EllipsisVerticalIcon, FolderGit2Icon, PlusIcon, StarIcon } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -18,7 +18,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -42,6 +41,11 @@ import {
   formatUpdatedAgo,
   languageColor,
 } from "@/lib/github-repo-meta"
+import {
+  apiErrorFromResponse,
+  toastApiError,
+  toastSuccess,
+} from "@/lib/app-toast"
 import { cn } from "@/lib/utils"
 
 function formatConnectedDate(value) {
@@ -240,12 +244,8 @@ export function DashboardPage() {
   const [connectingRepoId, setConnectingRepoId] = useState(null)
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false)
   const [hasLoadedAvailableRepos, setHasLoadedAvailableRepos] = useState(false)
-  const [connectionsError, setConnectionsError] = useState(null)
-  const [availableError, setAvailableError] = useState(null)
-  const [connectError, setConnectError] = useState(null)
   const [disconnectRepo, setDisconnectRepo] = useState(null)
   const [disconnecting, setDisconnecting] = useState(false)
-  const [disconnectError, setDisconnectError] = useState(null)
 
   const signedInWithGithub = user.externalAccounts.some(
     (account) => account.provider === "github"
@@ -266,15 +266,16 @@ export function DashboardPage() {
     try {
       const headers = await authHeaders()
       const response = await fetch("/api/repos/connected", { headers })
-      const data = await response.json()
+      const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(data.error ?? "Failed to load connected repositories")
+        const error = new Error(data.error ?? "Failed to load connected repositories")
+        error.status = response.status
+        throw error
       }
       setConnectedRepos(Array.isArray(data) ? data : [])
-      setConnectionsError(null)
     } catch (error) {
       setConnectedRepos([])
-      setConnectionsError(error.message)
+      toastApiError(error, "Could not load repositories")
     } finally {
       setHasLoadedConnections(true)
     }
@@ -296,24 +297,24 @@ export function DashboardPage() {
     authHeaders()
       .then((headers) => fetch("/api/github/repos", { headers }))
       .then(async (response) => {
-        const data = await response.json()
+        const data = await response.json().catch(() => ({}))
         if (!response.ok) {
-          throw new Error(data.error ?? "Failed to load GitHub repositories")
+          const error = new Error(data.error ?? "Failed to load GitHub repositories")
+          error.status = response.status
+          throw error
         }
         setAvailableRepos(Array.isArray(data) ? data : [])
-        setAvailableError(null)
         setHasLoadedAvailableRepos(true)
       })
       .catch((error) => {
         setAvailableRepos([])
-        setAvailableError(error.message)
+        toastApiError(error, "Could not load GitHub repositories")
         setHasLoadedAvailableRepos(true)
       })
   }, [authHeaders, showBrowseList])
 
   async function handleConnect(repo) {
     setConnectingRepoId(repo.id)
-    setConnectError(null)
     try {
       const headers = await authHeaders()
       const response = await fetch("/api/repos/connect", {
@@ -327,15 +328,15 @@ export function DashboardPage() {
           isPrivate: Boolean(repo.private),
         }),
       })
-      const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(data.error ?? "Failed to connect repository")
+        throw await apiErrorFromResponse(response, "Failed to connect repository")
       }
 
+      toastSuccess("Repository connected", repo.full_name)
       setBrowsingMore(false)
       await refreshConnectedRepos()
     } catch (error) {
-      setConnectError(error.message)
+      toastApiError(error, "Could not connect repository")
     } finally {
       setConnectingRepoId(null)
     }
@@ -347,7 +348,6 @@ export function DashboardPage() {
     }
 
     setDisconnecting(true)
-    setDisconnectError(null)
     try {
       const headers = await authHeaders()
       const response = await fetch(`/api/repos/${disconnectRepo.id}`, {
@@ -355,14 +355,17 @@ export function DashboardPage() {
         headers,
       })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error ?? "Failed to disconnect repository")
+        throw await apiErrorFromResponse(
+          response,
+          "Failed to disconnect repository"
+        )
       }
 
+      toastSuccess("Repository disconnected", disconnectRepo.repoName)
       setDisconnectRepo(null)
       await refreshConnectedRepos()
     } catch (error) {
-      setDisconnectError(error.message)
+      toastApiError(error, "Could not disconnect repository")
     } finally {
       setDisconnecting(false)
     }
@@ -370,14 +373,6 @@ export function DashboardPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col items-center gap-8 p-4 md:p-6">
-      {connectionsError ? (
-        <Alert variant="destructive" className="w-full">
-          <AlertCircleIcon />
-          <AlertTitle>Could not load repositories</AlertTitle>
-          <AlertDescription>{connectionsError}</AlertDescription>
-        </Alert>
-      ) : null}
-
       {!hasLoadedConnections ? (
         <ConnectedReposSkeleton />
       ) : hasConnectedRepos && !browsingMore ? (
@@ -393,23 +388,13 @@ export function DashboardPage() {
               </Button>
             ) : null}
           </div>
-          {disconnectError ? (
-            <Alert variant="destructive">
-              <AlertCircleIcon />
-              <AlertTitle>Could not disconnect repository</AlertTitle>
-              <AlertDescription>{disconnectError}</AlertDescription>
-            </Alert>
-          ) : null}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {connectedRepos.map((repo) => (
               <ConnectedRepoCard
                 key={repo.id}
                 repo={repo}
                 onOpen={() => navigate(`/repo/${repo.id}`)}
-                onDisconnect={(next) => {
-                  setDisconnectError(null)
-                  setDisconnectRepo(next)
-                }}
+                onDisconnect={(next) => setDisconnectRepo(next)}
               />
             ))}
           </div>
@@ -425,47 +410,28 @@ export function DashboardPage() {
           ) : null}
           {!hasLoadedAvailableRepos ? (
             <AvailableReposSkeleton />
-          ) : availableError ? (
-            <Alert variant="destructive">
-              <AlertCircleIcon />
-              <AlertTitle>Could not load GitHub repositories</AlertTitle>
-              <AlertDescription>{availableError}</AlertDescription>
-            </Alert>
           ) : (
-            <>
-              {connectError ? (
-                <Alert variant="destructive">
-                  <AlertCircleIcon />
-                  <AlertTitle>
-                    {/too many requests/i.test(connectError)
-                      ? "Too many requests"
-                      : "Could not connect repository"}
-                  </AlertTitle>
-                  <AlertDescription>{connectError}</AlertDescription>
-                </Alert>
-              ) : null}
-              {availableRepos
-                .filter(
-                  (repo) =>
-                    !connectedRepos.some(
-                      (connected) =>
-                        connected.externalRepoId === String(repo.id)
-                    )
-                )
-                .map((repo) => {
-                  const isConnecting = connectingRepoId === repo.id
-
-                  return (
-                    <AvailableRepoCard
-                      key={repo.full_name}
-                      repo={repo}
-                      isConnecting={isConnecting}
-                      connectingBusy={connectingRepoId !== null}
-                      onConnect={handleConnect}
-                    />
+            availableRepos
+              .filter(
+                (repo) =>
+                  !connectedRepos.some(
+                    (connected) =>
+                      connected.externalRepoId === String(repo.id)
                   )
-                })}
-            </>
+              )
+              .map((repo) => {
+                const isConnecting = connectingRepoId === repo.id
+
+                return (
+                  <AvailableRepoCard
+                    key={repo.full_name}
+                    repo={repo}
+                    isConnecting={isConnecting}
+                    connectingBusy={connectingRepoId !== null}
+                    onConnect={handleConnect}
+                  />
+                )
+              })
           )}
         </div>
       ) : !signedInWithGithub && !hasConnectedRepos ? (
@@ -480,7 +446,6 @@ export function DashboardPage() {
         onOpenChange={(open) => {
           if (!open && !disconnecting) {
             setDisconnectRepo(null)
-            setDisconnectError(null)
           }
         }}
       >
@@ -493,16 +458,10 @@ export function DashboardPage() {
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {disconnectError ? (
-            <p className="text-sm text-destructive">{disconnectError}</p>
-          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel
               disabled={disconnecting}
-              onClick={() => {
-                setDisconnectRepo(null)
-                setDisconnectError(null)
-              }}
+              onClick={() => setDisconnectRepo(null)}
             >
               Cancel
             </AlertDialogCancel>

@@ -1,5 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react"
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { useUser } from "@clerk/react"
+
+import { toastApiError, toastWarning } from "@/lib/app-toast"
 
 const ReviewCreditsContext = createContext({
   reviewCredits: null,
@@ -11,6 +13,18 @@ export function ReviewCreditsProvider({ children }) {
   const { user } = useUser()
   const [reviewCredits, setReviewCredits] = useState(null)
   const [isSynced, setIsSynced] = useState(false)
+  const warnedLowCredits = useRef(false)
+
+  useEffect(() => {
+    if (reviewCredits === 1 && !warnedLowCredits.current) {
+      warnedLowCredits.current = true
+      toastWarning("Credits running low", "1 credit left")
+    }
+
+    if (typeof reviewCredits === "number" && reviewCredits > 1) {
+      warnedLowCredits.current = false
+    }
+  }, [reviewCredits])
 
   useEffect(() => {
     if (!user) {
@@ -38,15 +52,13 @@ export function ReviewCreditsProvider({ children }) {
       .then(async (response) => {
         const data = await response.json().catch(() => ({}))
         if (!response.ok) {
-          throw new Error(data.error ?? "Failed to sync account")
+          const error = new Error(data.error ?? "Failed to sync account")
+          error.status = response.status
+          throw error
         }
         return data
       })
       .then((data) => {
-        console.log("users.sync", {
-          reviewCredits: data.reviewCredits,
-          cancelled,
-        })
         if (cancelled) {
           return
         }
@@ -56,8 +68,8 @@ export function ReviewCreditsProvider({ children }) {
         setIsSynced(true)
       })
       .catch((error) => {
-        console.error("users.sync failed", error)
         if (!cancelled) {
+          toastApiError(error, "Couldn't sync account")
           setIsSynced(true)
         }
       })
