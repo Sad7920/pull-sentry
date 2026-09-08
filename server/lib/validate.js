@@ -1,6 +1,6 @@
 import { AppError } from "./errors.js"
 
-const providers = new Set(["github", "gitlab"])
+const providers = new Set(["github"])
 
 export function requireNonEmptyString(value, name) {
   if (typeof value !== "string" || !value.trim()) {

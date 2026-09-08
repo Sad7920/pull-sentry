@@ -16,6 +16,11 @@ const clerkAppearance = {
   },
   elements: {
     rootBox: "w-full max-w-full",
+    socialButtonsBlockButton__gitlab: { display: "none" },
+    socialButtonsIconButton__gitlab: { display: "none" },
+    socialButtonsProviderIcon__gitlab: { display: "none" },
+    providerIcon__gitlab: { display: "none" },
+    alternativeMethodsBlockButton__gitlab: { display: "none" },
   },
 }
 

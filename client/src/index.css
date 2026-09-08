@@ -151,3 +151,15 @@
     color-scheme: light;
     }
 }
+
+/* GitLab is not a supported sign-in or repo provider. Hide it in Clerk UI. */
+.cl-socialButtonsBlockButton__gitlab,
+.cl-socialButtonsIconButton__gitlab,
+.cl-socialButtonsProviderIcon__gitlab,
+.cl-socialButtonsProviderInitialIcon__gitlab,
+.cl-providerIcon__gitlab,
+.cl-providerInitialIcon__gitlab,
+.cl-alternativeMethodsBlockButton__gitlab,
+.cl-menuButton__gitlab {
+  display: none !important;
+}

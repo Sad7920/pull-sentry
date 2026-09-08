@@ -9,7 +9,6 @@ datasource db {
 
 enum RepoProvider {
   github
-  gitlab
 }
 
 model User {

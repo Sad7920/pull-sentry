@@ -27,6 +27,13 @@ createRoot(document.getElementById("root")).render(
           termsPageUrl: "/terms-of-service",
           privacyPageUrl: "/privacy-policy",
         },
+        elements: {
+          socialButtonsBlockButton__gitlab: { display: "none" },
+          socialButtonsIconButton__gitlab: { display: "none" },
+          socialButtonsProviderIcon__gitlab: { display: "none" },
+          providerIcon__gitlab: { display: "none" },
+          alternativeMethodsBlockButton__gitlab: { display: "none" },
+        },
       }}
       signInUrl="/login"
       signUpUrl="/login"
