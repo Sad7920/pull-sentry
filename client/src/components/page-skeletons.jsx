@@ -34,14 +34,24 @@ export function ConnectedReposSkeleton() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {Array.from({ length: 4 }, (_, index) => (
           <Card key={index}>
-            <CardHeader>
-              <CardTitle>
-                <Skeleton className="h-5 w-3/4" />
-              </CardTitle>
-              <CardDescription>
-                <Skeleton className="h-4 w-1/2" />
-              </CardDescription>
-              <Skeleton className="h-5 w-16" />
+            <CardHeader className="gap-2">
+              <div className="min-w-0 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="size-4 shrink-0 rounded-sm" />
+                  <CardTitle className="flex-1">
+                    <Skeleton className="h-5 w-3/4" />
+                  </CardTitle>
+                </div>
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-32" />
+                <CardDescription>
+                  <Skeleton className="h-3 w-28" />
+                </CardDescription>
+                <div className="flex gap-1.5">
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                  <Skeleton className="h-5 w-14 rounded-full" />
+                </div>
+              </div>
             </CardHeader>
           </Card>
         ))}
@@ -53,20 +63,27 @@ export function ConnectedReposSkeleton() {
 export function AvailableReposSkeleton() {
   return (
     <div
-      className="flex w-full max-w-4xl flex-col gap-3"
+      className="flex w-full flex-col gap-3"
       aria-busy="true"
       aria-live="polite"
     >
       <ScreenReaderStatus label="Loading repositories to connect" />
       {Array.from({ length: 5 }, (_, index) => (
-        <Card key={index}>
-          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="min-w-0 flex-1 space-y-2">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-5 w-32" />
-                <Skeleton className="h-5 w-16 shrink-0" />
+        <Card key={index} size="sm">
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <div className="flex min-w-0 flex-1 gap-3">
+              <Skeleton className="mt-0.5 size-4 shrink-0 rounded-md" />
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-5 w-14 shrink-0" />
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <Skeleton className="h-3 w-2/3" />
+                  <Skeleton className="h-3 w-32 shrink-0" />
+                </div>
               </div>
-              <Skeleton className="h-4 w-full" />
             </div>
             <Skeleton className="h-8 w-20 shrink-0 self-end sm:self-center" />
           </CardContent>
@@ -138,12 +155,12 @@ export function PullRequestsTableSkeleton() {
 
 export function SecurityFindingsSkeleton() {
   return (
-    <div className="flex flex-col" aria-busy="true" aria-live="polite">
+    <div className="flex flex-col gap-3" aria-busy="true" aria-live="polite">
       <ScreenReaderStatus label="Loading security findings" />
       {Array.from({ length: 4 }, (_, index) => (
         <div
           key={index}
-          className="flex flex-wrap items-center gap-2 border-b py-3 last:border-b-0"
+          className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3"
         >
           <Skeleton className="h-4 w-14 shrink-0" />
           <Skeleton className="h-4 min-w-0 flex-1" />

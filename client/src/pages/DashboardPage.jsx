@@ -1,5 +1,5 @@
 import { useAuth, useUser } from "@clerk/react"
-import { AlertCircleIcon, LogOutIcon, MenuIcon, PlusIcon, XIcon } from "lucide-react"
+import { AlertCircleIcon, EllipsisVerticalIcon, FolderGit2Icon, PlusIcon, StarIcon } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -7,17 +7,42 @@ import {
   AvailableReposSkeleton,
   ConnectedReposSkeleton,
 } from "@/components/page-skeletons"
+import { useReviewCredits } from "@/components/ReviewCreditsContext"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  formatStarCount,
+  formatUpdatedAgo,
+  languageColor,
+} from "@/lib/github-repo-meta"
+import { cn } from "@/lib/utils"
 
 function formatConnectedDate(value) {
   return new Date(value).toLocaleDateString(undefined, {
@@ -27,9 +52,187 @@ function formatConnectedDate(value) {
   })
 }
 
+function LanguageDot({ language }) {
+  const color = languageColor(language)
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <span
+        aria-hidden="true"
+        className={cn("size-2 shrink-0 rounded-full", !color && "bg-muted-foreground")}
+        style={color ? { backgroundColor: color } : undefined}
+      />
+      <span className="truncate">{language}</span>
+    </span>
+  )
+}
+
+function stopCardNavigation(event) {
+  event.stopPropagation()
+}
+
+function severityDotClass(severity) {
+  if (severity === "high") {
+    return "bg-destructive"
+  }
+  if (severity === "low") {
+    return "bg-emerald-500"
+  }
+  return "bg-amber-500"
+}
+
+function openPrLabel(count) {
+  if (typeof count !== "number") {
+    return "PR count unavailable"
+  }
+  if (count === 1) {
+    return "1 open PR"
+  }
+  return `${count} open PRs`
+}
+
+function ConnectedRepoCard({ repo, onOpen, onDisconnect }) {
+  return (
+    <Card
+      role="button"
+      tabIndex={0}
+      className="cursor-pointer transition-shadow hover:shadow-md hover:ring-primary/30"
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) {
+          return
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+    >
+      <CardHeader className="gap-2">
+        <div className="min-w-0 space-y-2">
+          <div className="flex min-w-0 items-start gap-2">
+            <FolderGit2Icon
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+            />
+            <CardTitle className="truncate font-semibold">{repo.repoName}</CardTitle>
+          </div>
+          <p className="text-sm text-foreground/80">{openPrLabel(repo.openPrCount)}</p>
+          {repo.hasReviews ? (
+            <p className="flex items-center gap-1.5 text-sm text-foreground/80">
+              <span
+                aria-hidden="true"
+                className={`size-2 shrink-0 rounded-full ${severityDotClass(repo.highestSeverity)}`}
+              />
+              {repo.findingCount === 1
+                ? "1 issue flagged"
+                : `${repo.findingCount} issues flagged`}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">No reviews yet</p>
+          )}
+          <CardDescription className="text-xs">
+            Connected {formatConnectedDate(repo.connectedAt)}
+          </CardDescription>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="secondary">{repo.provider}</Badge>
+            <Badge variant={repo.isPrivate ? "secondary" : "outline"}>
+              {repo.isPrivate ? "Private" : "Public"}
+            </Badge>
+          </div>
+        </div>
+        <CardAction
+          onClick={stopCardNavigation}
+          onPointerDown={stopCardNavigation}
+          onKeyDown={stopCardNavigation}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label={`Actions for ${repo.repoName}`}
+              render={<Button variant="ghost" size="icon-sm" />}
+            >
+              <EllipsisVerticalIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="min-w-40"
+              onClick={stopCardNavigation}
+            >
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => onDisconnect(repo)}
+                >
+                  Disconnect repo
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </CardAction>
+      </CardHeader>
+    </Card>
+  )
+}
+
+function AvailableRepoCard({ repo, isConnecting, connectingBusy, onConnect }) {
+  const updated = formatUpdatedAgo(repo.updated_at)
+
+  return (
+    <Card
+      size="sm"
+      className="transition-shadow hover:shadow-md hover:ring-primary/30"
+    >
+      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex min-w-0 flex-1 gap-3">
+          <FolderGit2Icon
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <CardTitle className="truncate text-sm font-semibold">
+                {repo.name}
+              </CardTitle>
+              {repo.language ? <LanguageDot language={repo.language} /> : null}
+              <Badge variant={repo.private ? "secondary" : "outline"}>
+                {repo.private ? "Private" : "Public"}
+              </Badge>
+            </div>
+            <div className="mt-1 flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+              {repo.description ? (
+                <CardDescription className="min-w-0 flex-1 truncate text-xs">
+                  {repo.description}
+                </CardDescription>
+              ) : (
+                <span className="min-w-0 flex-1" />
+              )}
+              <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1">
+                  <StarIcon aria-hidden="true" className="size-3.5" />
+                  <span>{formatStarCount(repo.stargazers_count)}</span>
+                </span>
+                {updated ? <span>{updated}</span> : null}
+              </div>
+            </div>
+          </div>
+        </div>
+        <Button
+          className="self-end sm:self-center"
+          disabled={connectingBusy}
+          onClick={() => onConnect(repo)}
+        >
+          {isConnecting ? <Spinner data-icon="inline-start" /> : null}
+          {isConnecting ? "Connecting..." : "Connect"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function DashboardPage() {
-  const { getToken, signOut } = useAuth()
+  const { getToken } = useAuth()
   const { user } = useUser()
+  const { isSynced } = useReviewCredits()
   const navigate = useNavigate()
   const [connectedRepos, setConnectedRepos] = useState([])
   const [availableRepos, setAvailableRepos] = useState([])
@@ -37,10 +240,12 @@ export function DashboardPage() {
   const [connectingRepoId, setConnectingRepoId] = useState(null)
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false)
   const [hasLoadedAvailableRepos, setHasLoadedAvailableRepos] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
   const [connectionsError, setConnectionsError] = useState(null)
   const [availableError, setAvailableError] = useState(null)
   const [connectError, setConnectError] = useState(null)
+  const [disconnectRepo, setDisconnectRepo] = useState(null)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [disconnectError, setDisconnectError] = useState(null)
 
   const signedInWithGithub = user.externalAccounts.some(
     (account) => account.provider === "github"
@@ -76,39 +281,12 @@ export function DashboardPage() {
   }, [authHeaders])
 
   useEffect(() => {
-    if (!user) {
+    if (!isSynced) {
       return
     }
 
-    const clerkUser = {
-      id: user.id,
-      email: user.primaryEmailAddress?.emailAddress,
-      primaryEmailAddress: user.primaryEmailAddress
-        ? { emailAddress: user.primaryEmailAddress.emailAddress }
-        : null,
-      emailAddresses: user.emailAddresses.map((address) => ({
-        emailAddress: address.emailAddress,
-      })),
-    }
-
-    fetch("/api/users/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(clerkUser),
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          throw new Error(data.error ?? "Failed to sync account")
-        }
-      })
-      .catch((error) => {
-        setConnectionsError(error.message)
-      })
-      .finally(() => {
-        refreshConnectedRepos()
-      })
-  }, [refreshConnectedRepos, user])
+    refreshConnectedRepos()
+  }, [isSynced, refreshConnectedRepos])
 
   useEffect(() => {
     if (!showBrowseList) {
@@ -146,6 +324,7 @@ export function DashboardPage() {
           repoName: repo.full_name,
           repoUrl: repo.html_url,
           externalRepoId: String(repo.id),
+          isPrivate: Boolean(repo.private),
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -162,58 +341,37 @@ export function DashboardPage() {
     }
   }
 
-  function handleSignOut() {
-    setMenuOpen(false)
-    signOut(() => navigate("/login"))
+  async function handleConfirmDisconnect() {
+    if (!disconnectRepo) {
+      return
+    }
+
+    setDisconnecting(true)
+    setDisconnectError(null)
+    try {
+      const headers = await authHeaders()
+      const response = await fetch(`/api/repos/${disconnectRepo.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error ?? "Failed to disconnect repository")
+      }
+
+      setDisconnectRepo(null)
+      await refreshConnectedRepos()
+    } catch (error) {
+      setDisconnectError(error.message)
+    } finally {
+      setDisconnecting(false)
+    }
   }
 
   return (
-    <main className="flex min-h-svh flex-col items-center gap-8 bg-background p-4 md:p-6">
-      <header className="relative flex w-full max-w-4xl items-center justify-between md:hidden">
-        <div className="min-w-0">
-          <p className="font-heading text-base font-medium">PullSentry</p>
-          <p className="truncate text-sm text-muted-foreground">
-            Welcome, {user.firstName ?? user.username}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="icon"
-          aria-expanded={menuOpen}
-          aria-label={menuOpen ? "Close menu" : "Open menu"}
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          {menuOpen ? <XIcon /> : <MenuIcon />}
-        </Button>
-        {menuOpen ? (
-          <div className="absolute top-full right-0 z-20 mt-2 w-44 rounded-xl bg-card p-1 shadow-md ring-1 ring-border">
-            <Button
-              variant="ghost"
-              className="w-full justify-start"
-              onClick={handleSignOut}
-            >
-              <LogOutIcon data-icon="inline-start" />
-              Sign out
-            </Button>
-          </div>
-        ) : null}
-      </header>
-
-      <Card className="hidden w-full max-w-sm md:flex">
-        <CardHeader>
-          <CardTitle>Welcome, {user.firstName ?? user.username}</CardTitle>
-          <CardDescription>You are signed in.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" onClick={handleSignOut}>
-            <LogOutIcon data-icon="inline-start" />
-            Sign out
-          </Button>
-        </CardContent>
-      </Card>
-
+    <main className="mx-auto flex w-full max-w-4xl flex-col items-center gap-8 p-4 md:p-6">
       {connectionsError ? (
-        <Alert variant="destructive" className="w-full max-w-4xl">
+        <Alert variant="destructive" className="w-full">
           <AlertCircleIcon />
           <AlertTitle>Could not load repositories</AlertTitle>
           <AlertDescription>{connectionsError}</AlertDescription>
@@ -223,7 +381,7 @@ export function DashboardPage() {
       {!hasLoadedConnections ? (
         <ConnectedReposSkeleton />
       ) : hasConnectedRepos && !browsingMore ? (
-        <div className="flex w-full max-w-4xl flex-col gap-4">
+        <div className="flex w-full flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-heading text-base font-medium">
               Connected repos
@@ -235,34 +393,29 @@ export function DashboardPage() {
               </Button>
             ) : null}
           </div>
+          {disconnectError ? (
+            <Alert variant="destructive">
+              <AlertCircleIcon />
+              <AlertTitle>Could not disconnect repository</AlertTitle>
+              <AlertDescription>{disconnectError}</AlertDescription>
+            </Alert>
+          ) : null}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {connectedRepos.map((repo) => (
-              <Card
+              <ConnectedRepoCard
                 key={repo.id}
-                role="button"
-                tabIndex={0}
-                className="cursor-pointer"
-                onClick={() => navigate(`/repo/${repo.id}`)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault()
-                    navigate(`/repo/${repo.id}`)
-                  }
+                repo={repo}
+                onOpen={() => navigate(`/repo/${repo.id}`)}
+                onDisconnect={(next) => {
+                  setDisconnectError(null)
+                  setDisconnectRepo(next)
                 }}
-              >
-                <CardHeader>
-                  <CardTitle className="truncate">{repo.repoName}</CardTitle>
-                  <CardDescription>
-                    Connected {formatConnectedDate(repo.connectedAt)}
-                  </CardDescription>
-                  <Badge variant="secondary">{repo.provider}</Badge>
-                </CardHeader>
-              </Card>
+              />
             ))}
           </div>
         </div>
       ) : showBrowseList ? (
-        <div className="flex w-full max-w-4xl flex-col gap-3">
+        <div className="flex w-full flex-col gap-3">
           {hasConnectedRepos ? (
             <div className="flex justify-end">
               <Button variant="outline" onClick={() => setBrowsingMore(false)}>
@@ -303,35 +456,13 @@ export function DashboardPage() {
                   const isConnecting = connectingRepoId === repo.id
 
                   return (
-                    <Card key={repo.full_name}>
-                      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <CardTitle className="truncate">{repo.name}</CardTitle>
-                            <Badge
-                              variant={repo.private ? "secondary" : "outline"}
-                            >
-                              {repo.private ? "Private" : "Public"}
-                            </Badge>
-                          </div>
-                          {repo.description ? (
-                            <CardDescription className="truncate">
-                              {repo.description}
-                            </CardDescription>
-                          ) : null}
-                        </div>
-                        <Button
-                          className="self-end sm:self-center"
-                          disabled={connectingRepoId !== null}
-                          onClick={() => handleConnect(repo)}
-                        >
-                          {isConnecting ? (
-                            <Spinner data-icon="inline-start" />
-                          ) : null}
-                          {isConnecting ? "Connecting..." : "Connect"}
-                        </Button>
-                      </CardContent>
-                    </Card>
+                    <AvailableRepoCard
+                      key={repo.full_name}
+                      repo={repo}
+                      isConnecting={isConnecting}
+                      connectingBusy={connectingRepoId !== null}
+                      onConnect={handleConnect}
+                    />
                   )
                 })}
             </>
@@ -343,6 +474,49 @@ export function DashboardPage() {
           <Button variant="outline">Connect GitLab</Button>
         </div>
       ) : null}
+
+      <AlertDialog
+        open={Boolean(disconnectRepo)}
+        onOpenChange={(open) => {
+          if (!open && !disconnecting) {
+            setDisconnectRepo(null)
+            setDisconnectError(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect repository?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {disconnectRepo
+                ? `Disconnect ${disconnectRepo.repoName} from PullSentry? Reviews for this repo will be removed. You can connect it again later.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {disconnectError ? (
+            <p className="text-sm text-destructive">{disconnectError}</p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={disconnecting}
+              onClick={() => {
+                setDisconnectRepo(null)
+                setDisconnectError(null)
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={disconnecting}
+              onClick={handleConfirmDisconnect}
+            >
+              {disconnecting ? <Spinner data-icon="inline-start" /> : null}
+              {disconnecting ? "Disconnecting..." : "Disconnect repo"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   )
 }
