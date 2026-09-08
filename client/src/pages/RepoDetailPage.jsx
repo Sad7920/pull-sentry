@@ -1,8 +1,19 @@
 import { useAuth } from "@clerk/react"
-import { AlertCircleIcon, ArrowLeftIcon } from "lucide-react"
+import {
+  AlertCircleIcon,
+  AlertTriangleIcon,
+  ArrowLeftIcon,
+  CalendarIcon,
+  CheckCircleIcon,
+  FileIcon,
+  GaugeIcon,
+  GitPullRequestIcon,
+  HashIcon,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 
+import { useReviewCredits } from "@/components/ReviewCreditsContext"
 import {
   PullRequestsTableSkeleton,
   RepoDetailPageSkeleton,
@@ -32,6 +43,11 @@ import {
 } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   Table,
   TableBody,
   TableCell,
@@ -40,6 +56,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 
 function RepoEmptyState({ title = "No data yet" }) {
   return (
@@ -102,29 +119,112 @@ function sortFindings(findings) {
   })
 }
 
-function FindingList({ findings, showPr = false }) {
+function SeverityIcon({ severity, ...props }) {
+  if (severity === "high") {
+    return <AlertTriangleIcon {...props} />
+  }
+  if (severity === "low") {
+    return <CheckCircleIcon {...props} />
+  }
+  return <AlertCircleIcon {...props} />
+}
+
+function SeverityBadge({ severity }) {
+  return (
+    <Badge variant={severityVariant(severity)}>
+      <SeverityIcon severity={severity} data-icon="inline-start" />
+      {severity}
+    </Badge>
+  )
+}
+
+function findingTone(severity) {
+  if (severity === "high") {
+    return "bg-red-50"
+  }
+  if (severity === "low") {
+    return "bg-emerald-50"
+  }
+  return "bg-amber-50"
+}
+
+function FindingMeta({ finding, showPr = false }) {
+  const items = [
+    showPr && finding.prNumber
+      ? {
+          key: "pr",
+          icon: GitPullRequestIcon,
+          label: `PR #${finding.prNumber}`,
+        }
+      : null,
+    finding.file
+      ? { key: "file", icon: FileIcon, label: finding.file }
+      : null,
+    finding.line
+      ? { key: "line", icon: HashIcon, label: `line ${finding.line}` }
+      : null,
+    {
+      key: "confidence",
+      icon: GaugeIcon,
+      label: formatConfidence(finding.confidence),
+    },
+    finding.createdAt
+      ? {
+          key: "date",
+          icon: CalendarIcon,
+          label: formatDate(finding.createdAt),
+        }
+      : null,
+  ].filter(Boolean)
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      {items.map((item) => (
+        <span key={item.key} className="inline-flex min-w-0 items-center gap-1">
+          <item.icon aria-hidden="true" className="size-3.5 shrink-0" />
+          <span className="wrap-break-word">{item.label}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function FindingList({ findings, showPr = false, showSeverity = true, layout = "plain" }) {
+  const isCards = layout === "cards"
+
   return (
     <ul className="flex flex-col gap-3">
       {sortFindings(findings).map((finding, index) => (
         <li key={`${finding.reviewId}-${finding.file}-${finding.line}-${index}`}>
-          <div className="flex flex-col gap-1">
+          <div
+            className={cn(
+              "flex flex-col gap-2",
+              isCards &&
+                cn(
+                  "rounded-lg p-3",
+                  findingTone(finding.severity)
+                )
+            )}
+          >
             <div className="flex items-start gap-2">
-              <Badge variant={severityVariant(finding.severity)}>
-                {finding.severity}
-              </Badge>
-              <p>{finding.description}</p>
+              {showSeverity ? <SeverityBadge severity={finding.severity} /> : null}
+              <p className="min-w-0 flex-1">{finding.description}</p>
             </div>
-            <p className="wrap-break-word text-muted-foreground">
-              {[
-                showPr && finding.prNumber ? `PR #${finding.prNumber}` : null,
-                finding.file,
-                finding.line ? `line ${finding.line}` : null,
-                formatConfidence(finding.confidence),
-                finding.createdAt ? formatDate(finding.createdAt) : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
+            {isCards ? (
+              <FindingMeta finding={finding} showPr={showPr} />
+            ) : (
+              <p className="wrap-break-word text-muted-foreground">
+                {[
+                  showPr && finding.prNumber ? `PR #${finding.prNumber}` : null,
+                  finding.file,
+                  finding.line ? `line ${finding.line}` : null,
+                  formatConfidence(finding.confidence),
+                  finding.createdAt ? formatDate(finding.createdAt) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
           </div>
         </li>
       ))}
@@ -160,7 +260,11 @@ function ReviewFindings({ findings, showPr = false }) {
             </span>
           </AccordionTrigger>
           <AccordionContent>
-            <FindingList findings={group.items} showPr={showPr} />
+            <FindingList
+              findings={group.items}
+              showPr={showPr}
+              showSeverity={false}
+            />
           </AccordionContent>
         </AccordionItem>
       ))}
@@ -168,7 +272,7 @@ function ReviewFindings({ findings, showPr = false }) {
   )
 }
 
-function SecurityFindings({ findings }) {
+function SecurityFindings({ findings, openPrNumber }) {
   const pullRequests = []
   const groups = new Map()
 
@@ -203,31 +307,84 @@ function SecurityFindings({ findings }) {
       (Date.parse(right.createdAt) || 0) - (Date.parse(left.createdAt) || 0)
   )
 
+  const [openItems, setOpenItems] = useState(() =>
+    openPrNumber != null ? [String(openPrNumber)] : []
+  )
+
+  useEffect(() => {
+    if (openPrNumber == null) {
+      return
+    }
+
+    const id = String(openPrNumber)
+    setOpenItems((current) => (current.includes(id) ? current : [id, ...current]))
+
+    const frame = window.requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-pr-number="${id}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [openPrNumber])
+
   return (
     <Accordion
       multiple
-      // defaultValue={pullRequests.map((pull) => String(pull.prNumber))}
+      className="gap-3"
+      value={openItems}
+      onValueChange={(next) => {
+        setOpenItems(Array.isArray(next) ? next : next ? [next] : [])
+      }}
     >
       {pullRequests.map((pull) => {
-        const severity = highestSeverity(pull.findings)
         const count = pull.findings.length
+        const severity = count > 0 ? highestSeverity(pull.findings) : null
 
-        return (
-          <AccordionItem key={pull.prNumber} value={String(pull.prNumber)}>
-            <AccordionTrigger className="hover:no-underline">
-              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 pr-2">
-                <span className="shrink-0">{`PR #${pull.prNumber}`}</span>
-                <span className="min-w-0 flex-1 basis-32 truncate font-medium">
+        if (count === 0) {
+          return (
+            <div
+              key={pull.prNumber}
+              data-pr-number={pull.prNumber}
+              className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="shrink-0 text-muted-foreground">{`PR #${pull.prNumber}`}</span>
+                <span className="min-w-0 truncate font-medium">
                   {pull.title ?? "Untitled pull request"}
                 </span>
-                <Badge variant={severityVariant(severity)}>{severity}</Badge>
-                <span className="shrink-0 self-end text-muted-foreground">
+              </div>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-sm text-emerald-700">
+                <CheckCircleIcon aria-hidden="true" className="size-4" />
+                No issues found
+              </span>
+            </div>
+          )
+        }
+
+        return (
+          <AccordionItem
+            key={pull.prNumber}
+            value={String(pull.prNumber)}
+            data-pr-number={pull.prNumber}
+            className="rounded-xl border bg-card shadow-sm not-last:border-b-0 transition-shadow hover:shadow-md"
+          >
+            <AccordionTrigger className="items-center gap-3 px-4 py-3 hover:no-underline">
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="shrink-0 text-muted-foreground">{`PR #${pull.prNumber}`}</span>
+                <span className="min-w-0 truncate font-medium">
+                  {pull.title ?? "Untitled pull request"}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <SeverityBadge severity={severity} />
+                <span className="text-muted-foreground">
                   {count} {count === 1 ? "finding" : "findings"}
                 </span>
               </span>
             </AccordionTrigger>
-            <AccordionContent>
-              <FindingList findings={pull.findings} />
+            <AccordionContent className="px-4 pb-4 [&_p:not(:last-child)]:mb-0">
+              <FindingList findings={pull.findings} layout="cards" />
             </AccordionContent>
           </AccordionItem>
         )
@@ -251,20 +408,64 @@ function PullRequestReviewButton({
   reviewingNumber,
   onReview,
   className,
+  outOfCredits = false,
+  hasFindings = false,
+  onViewFindings,
 }) {
-  return (
+  if (hasFindings) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        className={className}
+        onClick={(event) => {
+          event.stopPropagation()
+          onViewFindings?.()
+        }}
+      >
+        View findings
+      </Button>
+    )
+  }
+
+  const disabled = outOfCredits || reviewingNumber !== null
+  const button = (
     <Button
       size="sm"
-      className={className}
-      disabled={reviewingNumber !== null}
+      className={outOfCredits ? undefined : className}
+      disabled={disabled}
       onClick={(event) => {
         event.stopPropagation()
+        if (outOfCredits) {
+          return
+        }
         onReview()
       }}
     >
       {isReviewing ? <Spinner data-icon="inline-start" /> : null}
       {isReviewing ? "Reviewing..." : "Review"}
     </Button>
+  )
+
+  if (!outOfCredits) {
+    return button
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        nativeButton={false}
+        className={className}
+        render={<span className="inline-flex" />}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {button}
+      </TooltipTrigger>
+      <TooltipContent>
+        You&apos;re out of review credits. Reviews are paused until credits are
+        restored.
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -275,6 +476,9 @@ function PullRequestReviewBlock({
   reviewError,
   onReview,
   showButton = true,
+  outOfCredits = false,
+  hasFindings = false,
+  onViewFindings,
 }) {
   return (
     <div className="flex w-full min-w-0 flex-col items-start gap-3 lg:min-w-56">
@@ -283,6 +487,9 @@ function PullRequestReviewBlock({
           isReviewing={isReviewing}
           reviewingNumber={reviewingNumber}
           onReview={onReview}
+          outOfCredits={outOfCredits}
+          hasFindings={hasFindings}
+          onViewFindings={onViewFindings}
         />
       ) : null}
       {isReviewing && !review ? <ReviewFindingsSkeleton /> : null}
@@ -292,12 +499,16 @@ function PullRequestReviewBlock({
           <AlertTitle>
             {/too many requests/i.test(reviewError)
               ? "Too many requests"
-              : "Review failed"}
+              : /review credits/i.test(reviewError)
+                ? "No review credits"
+                : /saving it timed out|try again/i.test(reviewError)
+                  ? "Couldn't save the review"
+                  : "Review failed"}
           </AlertTitle>
           <AlertDescription>{reviewError}</AlertDescription>
         </Alert>
       ) : null}
-      {review ? (
+      {review && !hasFindings ? (
         <ReviewFindings
           findings={Array.isArray(review.findings) ? review.findings : []}
         />
@@ -306,15 +517,21 @@ function PullRequestReviewBlock({
   )
 }
 
-function PullRequestsTab({ repoId, onReviewed }) {
+function PullRequestsTab({ repoId, onReviewed, onViewFindings }) {
   const { getToken } = useAuth()
+  const { reviewCredits, setReviewCredits } = useReviewCredits()
+  const outOfCredits = reviewCredits === 0
   const [pulls, setPulls] = useState(null)
   const [error, setError] = useState(null)
   const [reviews, setReviews] = useState({})
+  const [reviewedPrs, setReviewedPrs] = useState(() => new Set())
   const [reviewingNumber, setReviewingNumber] = useState(null)
   const [reviewErrors, setReviewErrors] = useState({})
 
   async function handleReview(prNumber) {
+    if (outOfCredits) {
+      return
+    }
     setReviewingNumber(prNumber)
     setReviewErrors((current) => ({ ...current, [prNumber]: null }))
 
@@ -332,7 +549,15 @@ function PullRequestsTab({ repoId, onReviewed }) {
       if (!response.ok) {
         throw new Error(data.error ?? "Review failed")
       }
+      if (typeof data.reviewCredits === "number") {
+        setReviewCredits(data.reviewCredits)
+      }
       setReviews((current) => ({ ...current, [prNumber]: data }))
+      setReviewedPrs((current) => {
+        const next = new Set(current)
+        next.add(prNumber)
+        return next
+      })
       onReviewed?.()
     } catch (err) {
       setReviewErrors((current) => ({
@@ -349,20 +574,40 @@ function PullRequestsTab({ repoId, onReviewed }) {
 
     getToken()
       .then((token) =>
-        fetch(`/api/repos/${repoId}/prs`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+        Promise.all([
+          fetch(`/api/repos/${repoId}/prs`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`/api/repos/${repoId}/reviews`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ])
       )
-      .then(async (response) => {
-        const data = await response.json()
-        if (!response.ok) {
-          throw new Error(data.error ?? "Failed to load pull requests")
+      .then(async ([prsResponse, reviewsResponse]) => {
+        const prsData = await prsResponse.json()
+        if (!prsResponse.ok) {
+          throw new Error(prsData.error ?? "Failed to load pull requests")
         }
-        return data
+
+        let reviewed = new Set()
+        if (reviewsResponse.ok) {
+          const reviewsData = await reviewsResponse.json()
+          reviewed = new Set(
+            (Array.isArray(reviewsData.findings) ? reviewsData.findings : [])
+              .map((finding) => finding.prNumber)
+              .filter((number) => Number.isFinite(number))
+          )
+        }
+
+        return {
+          pulls: Array.isArray(prsData) ? prsData : [],
+          reviewed,
+        }
       })
       .then((data) => {
         if (!cancelled) {
-          setPulls(Array.isArray(data) ? data : [])
+          setPulls(data.pulls)
+          setReviewedPrs(data.reviewed)
         }
       })
       .catch((err) => {
@@ -395,10 +640,12 @@ function PullRequestsTab({ repoId, onReviewed }) {
           const isReviewing = reviewingNumber === pull.number
           const review = reviews[pull.number]
           const reviewError = reviewErrors[pull.number]
+          const hasFindings =
+            reviewedPrs.has(pull.number) || Boolean(review)
 
           return (
             <Card key={pull.number}>
-              <CardContent className="flex flex-col gap-3">
+              <CardContent className="flex flex-col ">
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
                   <div className="flex min-w-0 items-center gap-2">
                     <CardTitle className="min-w-0 truncate text-sm">
@@ -418,6 +665,9 @@ function PullRequestsTab({ repoId, onReviewed }) {
                     className="row-span-2 self-center"
                     isReviewing={isReviewing}
                     reviewingNumber={reviewingNumber}
+                    outOfCredits={outOfCredits}
+                    hasFindings={hasFindings}
+                    onViewFindings={() => onViewFindings?.(pull.number)}
                     onReview={() => handleReview(pull.number)}
                   />
                   <CardDescription>
@@ -430,6 +680,9 @@ function PullRequestsTab({ repoId, onReviewed }) {
                   reviewingNumber={reviewingNumber}
                   review={review}
                   reviewError={reviewError}
+                  outOfCredits={outOfCredits}
+                  hasFindings={hasFindings}
+                  onViewFindings={() => onViewFindings?.(pull.number)}
                   onReview={() => handleReview(pull.number)}
                 />
               </CardContent>
@@ -455,6 +708,8 @@ function PullRequestsTab({ repoId, onReviewed }) {
               const isReviewing = reviewingNumber === pull.number
               const review = reviews[pull.number]
               const reviewError = reviewErrors[pull.number]
+              const hasFindings =
+                reviewedPrs.has(pull.number) || Boolean(review)
 
               return (
                 <TableRow key={pull.number}>
@@ -473,6 +728,9 @@ function PullRequestsTab({ repoId, onReviewed }) {
                       reviewingNumber={reviewingNumber}
                       review={review}
                       reviewError={reviewError}
+                      outOfCredits={outOfCredits}
+                      hasFindings={hasFindings}
+                      onViewFindings={() => onViewFindings?.(pull.number)}
                       onReview={() => handleReview(pull.number)}
                     />
                   </TableCell>
@@ -486,7 +744,7 @@ function PullRequestsTab({ repoId, onReviewed }) {
   )
 }
 
-function SecurityTab({ repoId, refreshKey }) {
+function SecurityTab({ repoId, refreshKey, openPrNumber }) {
   const { getToken } = useAuth()
   const [findings, setFindings] = useState(null)
   const [error, setError] = useState(null)
@@ -541,7 +799,7 @@ function SecurityTab({ repoId, refreshKey }) {
     return <RepoEmptyState title="No review findings yet" />
   }
 
-  return <SecurityFindings findings={findings} />
+  return <SecurityFindings findings={findings} openPrNumber={openPrNumber} />
 }
 
 function SettingsTab({ repo, onIndexed }) {
@@ -613,6 +871,8 @@ export function RepoDetailPage() {
   const [repo, setRepo] = useState(null)
   const [error, setError] = useState(null)
   const [reviewsVersion, setReviewsVersion] = useState(0)
+  const [tab, setTab] = useState("pull-requests")
+  const [openFindingPr, setOpenFindingPr] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -667,7 +927,7 @@ export function RepoDetailPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-6 bg-background p-4 md:p-6">
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <div className="flex flex-col gap-4">
         <Button
           variant="outline"
@@ -685,7 +945,7 @@ export function RepoDetailPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="pull-requests" className="min-w-0">
+      <Tabs value={tab} onValueChange={setTab} className="min-w-0">
         <TabsList className="h-8 w-full max-w-full justify-start overflow-x-auto md:w-fit">
           <TabsTrigger className="flex-none" value="pull-requests">
             Pull Requests
@@ -701,10 +961,18 @@ export function RepoDetailPage() {
           <PullRequestsTab
             repoId={id}
             onReviewed={() => setReviewsVersion((current) => current + 1)}
+            onViewFindings={(prNumber) => {
+              setOpenFindingPr(prNumber)
+              setTab("security")
+            }}
           />
         </TabsContent>
         <TabsContent value="security">
-          <SecurityTab repoId={id} refreshKey={reviewsVersion} />
+          <SecurityTab
+            repoId={id}
+            refreshKey={reviewsVersion}
+            openPrNumber={openFindingPr}
+          />
         </TabsContent>
         <TabsContent value="settings">
           <SettingsTab
