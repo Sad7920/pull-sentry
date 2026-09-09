@@ -6,6 +6,7 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -22,10 +23,12 @@ import { formatIndexedAgo } from "@/lib/github-repo-meta"
 export function SettingsTab({ repo, onIndexed }) {
   const { getToken } = useAuth()
   const [indexing, setIndexing] = useState(false)
+  const [indexError, setIndexError] = useState(null)
 
   async function handleIndex() {
     const wasIndexed = Boolean(repo.indexedAt)
     setIndexing(true)
+    setIndexError(null)
 
     try {
       const data = await authedFetch(getToken, `/repos/${repo.id}/index`, {
@@ -38,6 +41,8 @@ export function SettingsTab({ repo, onIndexed }) {
         repo.repoName
       )
     } catch (err) {
+      const message = err.message || "Something went wrong. Try again."
+      setIndexError(message)
       toastApiError(err, "Indexing failed")
     } finally {
       setIndexing(false)
@@ -77,6 +82,13 @@ export function SettingsTab({ repo, onIndexed }) {
           {indexing ? <Spinner data-icon="inline-start" /> : null}
           {indexing ? "Indexing..." : hasIndex ? "Re-index Repo" : "Index Repo"}
         </Button>
+        {indexError ? (
+          <Alert variant="destructive" className="w-full">
+            <CircleAlertIcon aria-hidden="true" />
+            <AlertTitle>Indexing failed</AlertTitle>
+            <AlertDescription>{indexError}</AlertDescription>
+          </Alert>
+        ) : null}
         {hasIndex ? (
           <p className="text-xs text-muted-foreground">
             Re-indexing replaces the previous index for this repo.

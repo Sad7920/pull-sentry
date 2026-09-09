@@ -1,19 +1,10 @@
 # PullSentry
 
-<p align="center">
-  <img src="client/public/logo.svg" alt="PullSentry" width="72" height="72" />
-</p>
+![PullSentry](client/public/logo.svg)
 
-<p align="center"><strong>Catch risky pull requests before they land.</strong></p>
+**Catch risky pull requests before they land.**
 
-<p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" alt="React" />
-  <img src="https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white" alt="Express" />
-  <img src="https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&logoColor=white" alt="Prisma" />
-  <img src="https://img.shields.io/badge/Clerk-Auth-6C47FF?logo=clerk&logoColor=white" alt="Clerk" />
-  <img src="https://img.shields.io/badge/LangGraph-agents-1C3C3C" alt="LangGraph" />
-</p>
+![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)![Prisma](https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&logoColor=white)![Clerk](https://img.shields.io/badge/Clerk-Auth-6C47FF?logo=clerk&logoColor=white)![LangGraph](https://img.shields.io/badge/LangGraph-agents-1C3C3C)
 
 ## Table of contents
 
@@ -26,6 +17,8 @@
 - [Contributing](#contributing)
 - [Roadmap](#roadmap)
 - [License](#license)
+
+
 
 ## Overview
 
@@ -95,6 +88,8 @@ Dark mode is **not** a product feature. Token files include a `.dark` block, but
 
 - Sentry for Node (`@sentry/node`) — optional DSN; spans around review graph steps
 
+
+
 ## Architecture
 
 Reviews run as a compiled LangGraph `StateGraph`. Security and style are **sequential**, not parallel: each node loads RAG context from Chroma using added lines from the diff as the search query, then Groq returns a JSON array of findings. Synthesis merges those lists (or falls back to concatenation if the merge is empty). The Gemini node is the last pass.
@@ -108,11 +103,15 @@ flowchart TD
   E --> F[Persist Review JSON<br/>decrement credit]
 ```
 
+
+
 Credits are decremented in the same transaction that writes the `Review` row; if persistence fails after the LLM run, the credit is incremented back.
 
 The Vite dev server proxies `/api` to the Express app (`localhost:3001`). The API binds `0.0.0.0` and uses `PORT` or **3001**. Routes are versioned under `/api/v1`. Chroma defaults to **8000**.
 
 ## Getting started
+
+
 
 ### Prerequisites
 
@@ -124,6 +123,8 @@ The Vite dev server proxies `/api` to the Express app (`localhost:3001`). The AP
 - **Gemini** API key (`GEMINI_API_KEY` or `GOOGLE_API_KEY`)
 - **Chroma** running locally (`npm run chroma` from the repo root)
 - **Sentry** DSN — optional; omit or leave placeholder if you are not sending events
+
+
 
 ### Groq and Gemini keys (no card)
 
@@ -144,30 +145,36 @@ cp client/.env.example client/.env
 cp server/.env.example server/.env
 ```
 
+
+
 ### Environment variables
 
-**`client/.env`**
+`client/.env`
 
-| Variable | Purpose |
-| --- | --- |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key for the Vite app |
-| `VITE_CLERK_SIGN_IN_URL` | Sign-in path (`/login`) |
+
+| Variable                                   | Purpose                                           |
+| ------------------------------------------ | ------------------------------------------------- |
+| `VITE_CLERK_PUBLISHABLE_KEY`               | Clerk publishable key for the Vite app            |
+| `VITE_CLERK_SIGN_IN_URL`                   | Sign-in path (`/login`)                           |
 | `VITE_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL` | Where new users land after sign-up (`/dashboard`) |
 
-**`server/.env`**
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string (required) |
-| `CLERK_PUBLISHABLE_KEY` | Clerk publishable key (required) |
-| `CLERK_SECRET_KEY` | Clerk secret key (required) |
-| `GROQ_API_KEY` | Groq key for review agents (required) |
-| `GEMINI_API_KEY` | Gemini key for the judge (required unless `GOOGLE_API_KEY` is set) |
-| `GOOGLE_API_KEY` | Alternate Gemini key name |
-| `CHROMA_URL` | Chroma HTTP URL (defaults to `http://localhost:8000`) |
-| `SENTRY_DSN` | Sentry DSN for the API (optional) |
-| `PORT` | API port (defaults to `3001`) |
-| `NODE_ENV` | Used for Sentry sample rates |
+`server/.env`
+
+
+| Variable                | Purpose                                                            |
+| ----------------------- | ------------------------------------------------------------------ |
+| `DATABASE_URL`          | PostgreSQL connection string (required)                            |
+| `CLERK_PUBLISHABLE_KEY` | Clerk publishable key (required)                                   |
+| `CLERK_SECRET_KEY`      | Clerk secret key (required)                                        |
+| `GROQ_API_KEY`          | Groq key for review agents (required)                              |
+| `GEMINI_API_KEY`        | Gemini key for the judge (required unless `GOOGLE_API_KEY` is set) |
+| `GOOGLE_API_KEY`        | Alternate Gemini key name                                          |
+| `CHROMA_URL`            | Chroma HTTP URL (defaults to `http://localhost:8000`)              |
+| `SENTRY_DSN`            | Sentry DSN for the API (optional)                                  |
+| `PORT`                  | API port (defaults to `3001`)                                      |
+| `NODE_ENV`              | Used for Sentry sample rates                                       |
+
 
 In Clerk, set the allowed origins / redirect URLs for `http://localhost:5173` and enable GitHub scopes that can list the user’s repositories (`read:user`, `user:email`, and `repo` if you need private repos).
 
@@ -223,12 +230,16 @@ Not implemented today, and not implied by the current UI:
 - User-facing dark mode
 - Client-side Sentry
 
+
+
 ### Production hardening
 
 - [ ] **Eval harness** — Golden dataset of labeled PRs (known correct/incorrect findings) run through the LangGraph pipeline (including Chroma-retrieved context) on every prompt or Groq/Gemini model change, tracking precision, recall, and false-positive rate over time.
 - [ ] **Cost tracking & budget guardrails** — Per-request token usage and cost logged by model (Groq vs Gemini), a summary view, and a circuit breaker that falls back to a cheaper model or rejects reviews that exceed a cost threshold.
 - [ ] **Prompt/output testing in CI** — A suite (promptfoo or a custom harness) asserting on JSON structure and content from the security, style, and synthesis Groq nodes, wired into CI so prompt changes cannot merge if they break existing cases.
 - [ ] **Reliability improvements** — Exponential backoff and retry for Groq/Gemini timeouts and rate limits, plus routing low-confidence Gemini judge findings to a human-review queue instead of auto-persisting them; failures stay visible in the existing Sentry review spans.
+
+
 
 ## License
 
