@@ -4,21 +4,16 @@
   <img src="client/public/logo.svg" alt="PullSentry" width="72" height="72" />
 </p>
 
-**Catch risky pull requests before they land.**
+<p align="center"><strong>Catch risky pull requests before they land.</strong></p>
 
-![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)![Prisma](https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&logoColor=white)![Clerk](https://img.shields.io/badge/Clerk-Auth-6C47FF?logo=clerk&logoColor=white)![LangGraph](https://img.shields.io/badge/LangGraph-agents-1C3C3C)
-
-## Table of contents
-
-- [Overview](#overview)
-- [How it works](#how-it-works)
-- [Features](#features)
-- [Tech stack](#tech-stack)
-- [Architecture](#architecture)
-- [Getting started](#getting-started)
-- [Contributing](#contributing)
-- [Roadmap](#roadmap)
-- [License](#license)
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" alt="React" />
+  <img src="https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white" alt="Express" />
+  <img src="https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&logoColor=white" alt="Prisma" />
+  <img src="https://img.shields.io/badge/Clerk-Auth-6C47FF?logo=clerk&logoColor=white" alt="Clerk" />
+  <img src="https://img.shields.io/badge/LangGraph-agents-1C3C3C" alt="LangGraph" />
+</p>
 
 
 
