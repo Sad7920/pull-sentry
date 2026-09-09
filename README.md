@@ -1,6 +1,8 @@
 # PullSentry
 
-![PullSentry](client/public/logo.svg)
+<p align="center">
+  <img src="client/public/logo.svg" alt="PullSentry" width="72" height="72" />
+</p>
 
 **Catch risky pull requests before they land.**
 
